@@ -131,9 +131,9 @@ src/
 ## Roadmap
 
 - [x] NetworkManager D-Bus backend (scan, list, connect, disconnect)
-- [ ] GTK4 UI (network list, password dialog, connection feedback)
+- [x] GTK4 UI (network list, password dialog, connection feedback)
+- [x] CSS theming with user overrides (`~/.config/wifi-manager/style.css`)
 - [ ] Daemon mode with D-Bus toggle
-- [ ] CSS theming with user overrides
 - [ ] D-Bus signal subscriptions for live updates
 - [ ] Packaging (AUR, Fedora COPR)
 

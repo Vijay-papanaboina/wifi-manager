@@ -1,0 +1,232 @@
+/* ============================================================================
+ * wifi-manager — Default dark theme
+ * Users can override via ~/.config/wifi-manager/style.css
+ * ============================================================================ */
+
+/* Main panel container */
+.wifi-panel {
+  background-color: rgba(30, 30, 46, 0.92);
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 0;
+}
+
+/* Header bar */
+.header {
+  padding: 14px 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.header .status-label {
+  color: rgba(205, 214, 244, 0.9);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.header .scan-button {
+  min-width: 32px;
+  min-height: 32px;
+  padding: 4px;
+  border-radius: 8px;
+  background-color: rgba(255, 255, 255, 0.06);
+  color: rgba(205, 214, 244, 0.8);
+  border: none;
+}
+
+.header .scan-button:hover {
+  background-color: rgba(255, 255, 255, 0.1);
+}
+
+.header .scan-button:active {
+  background-color: rgba(255, 255, 255, 0.14);
+}
+
+/* WiFi toggle switch */
+.wifi-toggle {
+  margin-right: 8px;
+}
+
+/* Network list */
+.network-list {
+  background-color: transparent;
+  padding: 4px 0;
+}
+
+/* Individual network rows */
+.network-row {
+  padding: 10px 16px;
+  margin: 1px 6px;
+  border-radius: 8px;
+  transition: background-color 150ms ease;
+}
+
+.network-row:hover {
+  background-color: rgba(255, 255, 255, 0.05);
+}
+
+.network-row:active {
+  background-color: rgba(255, 255, 255, 0.08);
+}
+
+.network-row.connected {
+  background-color: rgba(166, 227, 161, 0.08);
+}
+
+.network-row.connected:hover {
+  background-color: rgba(166, 227, 161, 0.12);
+}
+
+/* SSID label */
+.ssid-label {
+  color: rgba(205, 214, 244, 0.95);
+  font-size: 14px;
+  font-weight: 400;
+}
+
+.network-row.connected .ssid-label {
+  font-weight: 600;
+  color: rgba(166, 227, 161, 0.95);
+}
+
+/* Signal strength */
+.signal-icon {
+  color: rgba(205, 214, 244, 0.5);
+  font-size: 12px;
+  min-width: 20px;
+}
+
+.signal-strong {
+  color: rgba(166, 227, 161, 0.85);
+}
+
+.signal-good {
+  color: rgba(249, 226, 175, 0.85);
+}
+
+.signal-fair {
+  color: rgba(250, 179, 135, 0.85);
+}
+
+.signal-weak {
+  color: rgba(243, 139, 168, 0.75);
+}
+
+/* Security icon */
+.security-icon {
+  color: rgba(205, 214, 244, 0.4);
+  font-size: 12px;
+  margin-left: 4px;
+}
+
+/* Band badge */
+.band-badge {
+  font-size: 9px;
+  font-weight: 700;
+  color: rgba(137, 180, 250, 0.75);
+  padding: 1px 4px;
+  border-radius: 3px;
+  background-color: rgba(137, 180, 250, 0.1);
+  margin-left: 6px;
+}
+
+/* Connected checkmark */
+.connected-icon {
+  color: rgba(166, 227, 161, 0.9);
+  font-size: 14px;
+  margin-left: 6px;
+}
+
+/* Saved network indicator */
+.saved-label {
+  font-size: 10px;
+  color: rgba(205, 214, 244, 0.3);
+  margin-left: 6px;
+}
+
+/* Password entry section */
+.password-section {
+  padding: 8px 16px 12px 16px;
+  margin: 0 6px 2px 6px;
+  border-radius: 0 0 8px 8px;
+  background-color: rgba(255, 255, 255, 0.03);
+  border-top: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.password-entry {
+  background-color: rgba(30, 30, 46, 0.8);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
+  padding: 8px 10px;
+  color: rgba(205, 214, 244, 0.95);
+  font-size: 13px;
+  caret-color: rgba(137, 180, 250, 0.9);
+}
+
+.password-entry:focus {
+  border-color: rgba(137, 180, 250, 0.5);
+  outline: none;
+}
+
+.connect-button {
+  background-color: rgba(137, 180, 250, 0.2);
+  color: rgba(137, 180, 250, 0.95);
+  border: none;
+  border-radius: 6px;
+  padding: 6px 16px;
+  font-size: 13px;
+  font-weight: 500;
+  min-height: 32px;
+}
+
+.connect-button:hover {
+  background-color: rgba(137, 180, 250, 0.3);
+}
+
+.cancel-button {
+  background-color: transparent;
+  color: rgba(205, 214, 244, 0.5);
+  border: none;
+  border-radius: 6px;
+  padding: 6px 12px;
+  font-size: 13px;
+  min-height: 32px;
+}
+
+.cancel-button:hover {
+  background-color: rgba(255, 255, 255, 0.05);
+  color: rgba(205, 214, 244, 0.7);
+}
+
+/* Error label */
+.error-label {
+  color: rgba(243, 139, 168, 0.9);
+  font-size: 12px;
+  margin-top: 4px;
+}
+
+/* Spinner */
+.spinner {
+  color: rgba(137, 180, 250, 0.8);
+}
+
+/* Empty state */
+.empty-label {
+  color: rgba(205, 214, 244, 0.3);
+  font-size: 13px;
+  padding: 40px 20px;
+}
+
+/* Scrollbar styling */
+.network-scroll scrollbar {
+  background-color: transparent;
+}
+
+.network-scroll scrollbar slider {
+  background-color: rgba(255, 255, 255, 0.08);
+  border-radius: 99px;
+  min-width: 4px;
+}
+
+.network-scroll scrollbar slider:hover {
+  background-color: rgba(255, 255, 255, 0.14);
+}
