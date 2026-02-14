@@ -76,14 +76,21 @@ wifi-manager
 wifi-manager --toggle
 ```
 
-### Hyprland Keybind
+### Hyprland Integration
 
 Add to your Hyprland config:
 
 ```ini
+# Autostart and keybind
 exec-once = wifi-manager
 bind = $mainMod, W, exec, wifi-manager --toggle
+
+# Optional: blur and styling for the panel
+layerrule = blur on, match:namespace wifi-manager
+layerrule = ignore_alpha 0.3, match:namespace wifi-manager
 ```
+
+The layer namespace is `wifi-manager` (visible in `hyprctl layers`). You can target it with any Hyprland `layerrule` — blur, shadows, animations, etc.
 
 ## Configuration
 

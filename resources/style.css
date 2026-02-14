@@ -3,6 +3,11 @@
  * Users can override via ~/.config/wifi-manager/style.css
  * ============================================================================ */
 
+/* Strip GTK's default window background so .wifi-panel is the only layer */
+window {
+  background: transparent;
+}
+
 /* Main panel container */
 .wifi-panel {
   background-color: rgba(30, 30, 46, 0.92);

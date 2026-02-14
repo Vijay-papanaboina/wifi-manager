@@ -37,6 +37,7 @@ pub fn build_window(app: &Application) -> PanelWidgets {
 
     // Initialize layer shell
     window.init_layer_shell();
+    window.set_namespace(Some("wifi-manager"));
     window.set_layer(Layer::Top);
     window.set_keyboard_mode(KeyboardMode::OnDemand);
 
