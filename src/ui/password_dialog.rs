@@ -1,7 +1,10 @@
 //! Inline password entry section for secured networks.
 
 use gtk4::prelude::*;
-use gtk4::{Box as GtkBox, Button, Entry, InputPurpose, Label, Orientation, Revealer, RevealerTransitionType};
+use gtk4::{
+    Box as GtkBox, Button, Entry, InputPurpose, Label, Orientation, Revealer,
+    RevealerTransitionType,
+};
 
 /// Build the inline password entry section.
 ///
@@ -31,7 +34,9 @@ pub fn build_password_section() -> (Revealer, Entry, Button, Button, Label) {
     // Toggle password visibility when icon is clicked
     entry.connect_icon_release(|entry, _pos| {
         // Check current state by looking at the icon name
-        let is_hidden = entry.secondary_icon_name().map_or(true, |name| name == "view-reveal-symbolic");
+        let is_hidden = entry
+            .secondary_icon_name()
+            .is_none_or(|name| name == "view-reveal-symbolic");
         entry.set_visibility(is_hidden);
         if is_hidden {
             entry.set_secondary_icon_name(Some("view-conceal-symbolic"));

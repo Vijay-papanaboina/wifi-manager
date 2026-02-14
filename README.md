@@ -133,7 +133,7 @@ src/
 - [x] NetworkManager D-Bus backend (scan, list, connect, disconnect)
 - [x] GTK4 UI (network list, password dialog, connection feedback)
 - [x] CSS theming with user overrides (`~/.config/wifi-manager/style.css`)
-- [ ] Daemon mode with D-Bus toggle
+- [x] Daemon mode with D-Bus toggle
 - [ ] D-Bus signal subscriptions for live updates
 - [ ] Packaging (AUR, Fedora COPR)
 

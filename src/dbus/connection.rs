@@ -2,7 +2,10 @@ use std::collections::HashMap;
 use zbus::zvariant::Value;
 
 /// Build a NM connection settings dict for connecting to a WPA-PSK secured network.
-pub fn build_wpa_psk_settings<'a>(ssid: &str, password: &'a str) -> HashMap<String, HashMap<String, Value<'a>>> {
+pub fn build_wpa_psk_settings<'a>(
+    ssid: &str,
+    password: &'a str,
+) -> HashMap<String, HashMap<String, Value<'a>>> {
     let mut settings: HashMap<String, HashMap<String, Value>> = HashMap::new();
 
     // connection section
@@ -25,7 +28,10 @@ pub fn build_wpa_psk_settings<'a>(ssid: &str, password: &'a str) -> HashMap<Stri
 }
 
 /// Build a NM connection settings dict for connecting to a SAE (WPA3) network.
-pub fn build_wpa3_settings<'a>(ssid: &str, password: &'a str) -> HashMap<String, HashMap<String, Value<'a>>> {
+pub fn build_wpa3_settings<'a>(
+    ssid: &str,
+    password: &'a str,
+) -> HashMap<String, HashMap<String, Value<'a>>> {
     let mut settings: HashMap<String, HashMap<String, Value>> = HashMap::new();
 
     let mut connection = HashMap::new();

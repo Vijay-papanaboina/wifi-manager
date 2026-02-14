@@ -9,6 +9,7 @@ use super::access_point::{self, Band, Network, SecurityType};
 use super::proxies::*;
 
 /// The WiFi manager that wraps all NM D-Bus interactions.
+#[derive(Clone)]
 pub struct WifiManager {
     connection: zbus::Connection,
     wifi_device_path: OwnedObjectPath,
@@ -41,8 +42,8 @@ impl WifiManager {
             }
         }
 
-        let wifi_device_path = wifi_device_path
-            .ok_or_else(|| zbus::Error::Failure("No WiFi device found".into()))?;
+        let wifi_device_path =
+            wifi_device_path.ok_or_else(|| zbus::Error::Failure("No WiFi device found".into()))?;
 
         log::info!("Found WiFi device: {}", wifi_device_path);
 
@@ -301,16 +302,14 @@ impl WifiManager {
                 }
 
                 // Get the SSID from 802-11-wireless settings
-                if let Some(wifi_settings) = settings.get("802-11-wireless") {
-                    if let Some(ssid_val) = wifi_settings.get("ssid") {
-                        if let Ok(ssid_bytes) = <Vec<u8>>::try_from(ssid_val.clone()) {
+                if let Some(wifi_settings) = settings.get("802-11-wireless")
+                    && let Some(ssid_val) = wifi_settings.get("ssid")
+                        && let Ok(ssid_bytes) = <Vec<u8>>::try_from(ssid_val.clone()) {
                             let ssid = String::from_utf8_lossy(&ssid_bytes).to_string();
                             if !ssid.is_empty() {
                                 ssid_map.insert(ssid, conn_path.to_string());
                             }
                         }
-                    }
-                }
             }
         }
 

@@ -79,10 +79,8 @@ pub(crate) trait Device {
 )]
 pub(crate) trait Wireless {
     /// Request a WiFi scan
-    fn request_scan(
-        &self,
-        options: HashMap<String, zbus::zvariant::Value<'_>>,
-    ) -> zbus::Result<()>;
+    fn request_scan(&self, options: HashMap<String, zbus::zvariant::Value<'_>>)
+    -> zbus::Result<()>;
 
     /// List of access point object paths
     #[zbus(property)]

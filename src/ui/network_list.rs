@@ -3,8 +3,8 @@
 use gtk4::prelude::*;
 use gtk4::{Label, ListBox, PolicyType, ScrolledWindow, SelectionMode};
 
-use crate::dbus::access_point::Network;
 use super::network_row;
+use crate::dbus::access_point::Network;
 
 /// Build a scrollable network list.
 ///

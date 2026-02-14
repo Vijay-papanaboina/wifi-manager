@@ -4,9 +4,7 @@
 //! loads the CSS theme, and sets up layer-shell positioning.
 
 use gtk4::prelude::*;
-use gtk4::{
-    gdk, Application, ApplicationWindow, Box as GtkBox, CssProvider, ListBox, Orientation,
-};
+use gtk4::{Application, ApplicationWindow, Box as GtkBox, CssProvider, ListBox, Orientation, gdk};
 use gtk4_layer_shell::{Edge, KeyboardMode, Layer, LayerShell};
 
 use super::{header, network_list, password_dialog};
@@ -70,8 +68,9 @@ pub fn build_window(app: &Application) -> PanelWidgets {
     // Load CSS theme
     load_css();
 
-    window.present();
-    log::info!("Layer-shell panel presented");
+    // Window starts hidden — daemon controls visibility via Toggle/Show
+    // window.present() is NOT called here; the daemon will show it on demand.
+    log::info!("Layer-shell panel built (hidden)");
 
     PanelWidgets {
         window,
@@ -121,5 +120,9 @@ fn load_css() {
 /// Get the config directory: ~/.config/wifi-manager/
 fn dirs_config_path() -> Option<std::path::PathBuf> {
     let home = std::env::var("HOME").ok()?;
-    Some(std::path::PathBuf::from(home).join(".config").join("wifi-manager"))
+    Some(
+        std::path::PathBuf::from(home)
+            .join(".config")
+            .join("wifi-manager"),
+    )
 }
