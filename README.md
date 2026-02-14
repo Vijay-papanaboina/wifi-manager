@@ -1,8 +1,6 @@
 # wifi-manager
 
-A lightweight, floating WiFi manager for Wayland compositors like **Hyprland** and **Sway**. Built with Rust, GTK4, and layer-shell — designed as a proper native alternative to `nmtui` and rofi scripts.
-
-> **⚠️ Status: Work in Progress** — The D-Bus backend is complete. GTK4 UI is next.
+A lightweight, native WiFi manager for Wayland compositors. Built with Rust, GTK4, and layer-shell — designed as a proper alternative to `nmtui`, `nm-applet`, and rofi-based scripts.
 
 ## Why
 
@@ -16,24 +14,26 @@ There is no standalone GUI WiFi manager that works well on Wayland window manage
 | `iwgtk`                | Requires iwd, most distros use NetworkManager                    |
 | Rofi/wofi scripts      | No real UI — no signal bars, no live updates, no visual feedback |
 
-**wifi-manager** fills this gap: a floating panel that scans, lists, and connects to WiFi networks with a proper GUI.
+**wifi-manager** fills this gap: a floating panel that scans, lists, and connects to WiFi networks with a proper GUI, live state updates, and full theming support.
 
 ## Features
 
-- 📡 **Scan & list** available WiFi networks with signal strength and security info
-- 🔐 **Connect** to open, WPA2, and WPA3 networks
-- 💾 **Saved networks** detected and reconnected without re-entering passwords
-- 📶 **Signal strength** and frequency band (2.4 GHz / 5 GHz) display
-- 🔌 **Disconnect** and WiFi radio toggle
-- 🪟 **Floating overlay** via layer-shell — no window decorations, anchored to screen edge
-- 🎨 **Custom CSS theming** — user styles via `~/.config/wifi-manager/style.css`
-- 🔁 **Daemon mode** — runs in background, toggles visibility on keybind
+- **Scan and list** available WiFi networks with signal strength, frequency band, and security info
+- **Connect** to open, WPA2, and WPA3 networks with inline password entry
+- **Saved network detection** — reconnects to known networks without re-entering passwords
+- **Live updates** — UI reflects WiFi state changes in real time (D-Bus signal subscriptions)
+- **Scan-on-show** — automatically rescans when the panel is toggled visible
+- **WiFi toggle** — enable/disable the wireless radio directly from the panel
+- **Daemon mode** — runs as a background process, toggled via CLI flag or D-Bus
+- **Layer-shell overlay** — floating panel with no window decorations, positioned via config
+- **Configurable position** — 9 anchor positions with per-edge margin offsets
+- **Custom CSS theming** — override the default dark theme with your own styles
 
 ## Requirements
 
 - Linux with Wayland (Hyprland, Sway, or any wlroots-based compositor)
-- [NetworkManager](https://networkmanager.dev/) running as the system network service
-- GTK4 and gtk4-layer-shell development libraries
+- [NetworkManager](https://networkmanager.dev/) as the system network service
+- GTK4 and gtk4-layer-shell libraries
 - Rust toolchain (1.70+)
 
 ### System Dependencies
@@ -59,7 +59,7 @@ sudo apt install libgtk-4-dev libgtk4-layer-shell-dev network-manager
 ## Build
 
 ```sh
-git clone https://github.com/youruser/wifi-manager.git
+git clone https://github.com/Vijay-papanaboina/wifi-manager.git
 cd wifi-manager
 cargo build --release
 ```
@@ -69,20 +69,41 @@ The binary will be at `./target/release/wifi-manager`.
 ## Usage
 
 ```sh
-# Start the daemon (window hidden)
+# Launch the daemon (panel starts hidden, then shown on first load)
 wifi-manager
 
-# Toggle panel visibility (from keybind or terminal)
+# Toggle panel visibility
 wifi-manager --toggle
 ```
 
 ### Hyprland Keybind
 
-Add to `~/.config/hypr/hyprland.conf`:
+Add to your Hyprland config:
 
 ```ini
+exec-once = wifi-manager
 bind = $mainMod, W, exec, wifi-manager --toggle
 ```
+
+## Configuration
+
+Configuration is loaded from `~/.config/wifi-manager/config.toml`. All fields are optional and fall back to defaults.
+
+```toml
+# Window position on screen.
+# Options: center, top-right, top-center, top-left,
+#          bottom-right, bottom-center, bottom-left,
+#          center-right, center-left
+position = "center"
+
+# Margin offsets in pixels (only effective on anchored edges).
+margin_top = 10
+margin_right = 10
+margin_bottom = 10
+margin_left = 10
+```
+
+> **Note:** Margins only apply to edges the window is anchored to. For example, with `top-left`, only `margin_top` and `margin_left` have an effect. With `center`, no margins apply.
 
 ## Theming
 
@@ -92,7 +113,7 @@ wifi-manager ships with a dark default theme. To customize, create:
 ~/.config/wifi-manager/style.css
 ```
 
-Your CSS overrides the default theme via cascade. Available class names:
+Your CSS overrides the default theme. Available selectors:
 
 | Selector                 | Element                        |
 | ------------------------ | ------------------------------ |
@@ -113,37 +134,33 @@ Your CSS overrides the default theme via cascade. Available class names:
 
 ```
 src/
-├── main.rs               # Entry point, CLI, GTK application setup
-├── app.rs                # Application controller (UI ↔ D-Bus bridge)
+├── main.rs                # Entry point, CLI parsing, GTK application setup
+├── app.rs                 # Application controller (UI <-> D-Bus bridge, live updates)
+├── config.rs              # Configuration loader (TOML)
+├── daemon.rs              # D-Bus daemon service (Toggle/Show/Hide)
 ├── dbus/
-│   ├── proxies.rs        # D-Bus proxy trait definitions (zbus)
-│   ├── network_manager.rs # High-level WifiManager (scan, connect, disconnect)
-│   ├── access_point.rs   # Data model (Network, SecurityType, Band)
-│   └── connection.rs     # NM connection settings builders
+│   ├── proxies.rs         # D-Bus proxy trait definitions (zbus)
+│   ├── network_manager.rs # High-level WiFi operations (scan, connect, disconnect)
+│   ├── access_point.rs    # Data model (Network, SecurityType, Band)
+│   └── connection.rs      # NM connection settings builders
 └── ui/
-    ├── window.rs         # Layer-shell floating window setup
-    ├── header.rs         # Header bar (WiFi toggle, status, scan button)
-    ├── network_list.rs   # Scrollable network list
-    ├── network_row.rs    # Individual network row widget
+    ├── window.rs          # Layer-shell window setup and positioning
+    ├── header.rs          # Header bar (WiFi toggle, status, scan button)
+    ├── network_list.rs    # Scrollable network list
+    ├── network_row.rs     # Individual network row widget
     └── password_dialog.rs # Inline password entry
 ```
 
-## Roadmap
-
-- [x] NetworkManager D-Bus backend (scan, list, connect, disconnect)
-- [x] GTK4 UI (network list, password dialog, connection feedback)
-- [x] CSS theming with user overrides (`~/.config/wifi-manager/style.css`)
-- [x] Daemon mode with D-Bus toggle
-- [ ] D-Bus signal subscriptions for live updates
-- [ ] Packaging (AUR, Fedora COPR)
-
 ## Tech Stack
 
-- **Rust** — systems language, no runtime overhead
-- **GTK4** — UI framework
-- **gtk4-layer-shell** — Wayland overlay/popup support
-- **zbus** — pure-Rust D-Bus client (communicates with NetworkManager)
-- **clap** — CLI argument parsing
+| Component           | Library                            |
+| ------------------- | ---------------------------------- |
+| Language            | Rust                               |
+| UI framework        | GTK4                               |
+| Wayland integration | gtk4-layer-shell                   |
+| D-Bus client        | zbus (pure Rust, async-io backend) |
+| Configuration       | serde + toml                       |
+| CLI                 | clap                               |
 
 ## License
 

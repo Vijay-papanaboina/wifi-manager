@@ -10,4 +10,6 @@ futures-util = "0.3"
 gtk4 = { version = "0.10.3", features = ["v4_12"] }
 gtk4-layer-shell = "0.7.1"
 log = "0.4.29"
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
 zbus = "5.13.2"

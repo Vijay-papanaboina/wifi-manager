@@ -8,6 +8,7 @@ use gtk4::{Application, ApplicationWindow, Box as GtkBox, CssProvider, ListBox, 
 use gtk4_layer_shell::{Edge, KeyboardMode, Layer, LayerShell};
 
 use super::{header, network_list, password_dialog};
+use crate::config::{Config, Position};
 
 /// All the UI handles needed by the app controller.
 pub struct PanelWidgets {
@@ -25,6 +26,8 @@ pub struct PanelWidgets {
 
 /// Build the main floating panel window with all UI components.
 pub fn build_window(app: &Application) -> PanelWidgets {
+    let config = Config::load();
+
     let window = ApplicationWindow::builder()
         .application(app)
         .title("WiFi Manager")
@@ -37,11 +40,8 @@ pub fn build_window(app: &Application) -> PanelWidgets {
     window.set_layer(Layer::Top);
     window.set_keyboard_mode(KeyboardMode::OnDemand);
 
-    // Anchor to top-right with margin
-    window.set_anchor(Edge::Top, true);
-    window.set_anchor(Edge::Right, true);
-    window.set_margin(Edge::Top, 10);
-    window.set_margin(Edge::Right, 10);
+    // Apply position from config
+    apply_position(&window, &config);
 
     // Don't push other windows
     window.set_exclusive_zone(-1);
@@ -125,4 +125,35 @@ fn dirs_config_path() -> Option<std::path::PathBuf> {
             .join(".config")
             .join("wifi-manager"),
     )
+}
+
+/// Apply window position and margins from config to a layer-shell window.
+fn apply_position(window: &ApplicationWindow, config: &Config) {
+    // Set anchors based on position
+    let (top, bottom, left, right) = match config.position {
+        Position::Center => (false, false, false, false),
+        Position::TopCenter => (true, false, false, false),
+        Position::TopRight => (true, false, false, true),
+        Position::TopLeft => (true, false, true, false),
+        Position::BottomCenter => (false, true, false, false),
+        Position::BottomRight => (false, true, false, true),
+        Position::BottomLeft => (false, true, true, false),
+        Position::CenterRight => (false, false, false, true),
+        Position::CenterLeft => (false, false, true, false),
+    };
+
+    window.set_anchor(Edge::Top, top);
+    window.set_anchor(Edge::Bottom, bottom);
+    window.set_anchor(Edge::Left, left);
+    window.set_anchor(Edge::Right, right);
+
+    // Apply margins
+    window.set_margin(Edge::Top, config.margin_top);
+    window.set_margin(Edge::Right, config.margin_right);
+    window.set_margin(Edge::Bottom, config.margin_bottom);
+    window.set_margin(Edge::Left, config.margin_left);
+
+    log::info!("Window position: {:?}, margins: t={} r={} b={} l={}",
+        config.position, config.margin_top, config.margin_right,
+        config.margin_bottom, config.margin_left);
 }
