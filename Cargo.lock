@@ -1553,6 +1553,7 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "env_logger",
+ "futures-util",
  "gtk4",
  "gtk4-layer-shell",
  "log",

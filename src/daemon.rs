@@ -22,6 +22,8 @@ type ToggleFn = Arc<dyn Fn(bool) + Send + Sync>;
 pub struct PanelState {
     /// Whether the panel is currently visible.
     pub visible: Arc<AtomicBool>,
+    /// Flag set by show() — polled by GTK main thread to trigger scan-on-show.
+    pub scan_requested: Arc<AtomicBool>,
     /// Callback to toggle visibility — dispatches to GTK main thread.
     toggle_fn: ToggleFn,
 }
@@ -30,12 +32,14 @@ impl PanelState {
     pub fn new(toggle_fn: impl Fn(bool) + Send + Sync + 'static) -> Self {
         Self {
             visible: Arc::new(AtomicBool::new(false)),
+            scan_requested: Arc::new(AtomicBool::new(false)),
             toggle_fn: Arc::new(toggle_fn),
         }
     }
 
     pub fn show(&self) {
         self.visible.store(true, Ordering::Relaxed);
+        self.scan_requested.store(true, Ordering::Relaxed);
         (self.toggle_fn)(true);
     }
 

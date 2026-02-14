@@ -6,6 +6,7 @@ edition = "2024"
 [dependencies]
 clap = { version = "4.5.58", features = ["derive"] }
 env_logger = "0.11.9"
+futures-util = "0.3"
 gtk4 = { version = "0.10.3", features = ["v4_12"] }
 gtk4-layer-shell = "0.7.1"
 log = "0.4.29"

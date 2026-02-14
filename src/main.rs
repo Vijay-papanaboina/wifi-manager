@@ -100,7 +100,11 @@ fn main() {
             match dbus::network_manager::WifiManager::new().await {
                 Ok(wifi) => {
                     log::info!("NetworkManager D-Bus connection established");
-                    app::setup(&widgets, wifi);
+                    app::setup(
+                        &widgets,
+                        wifi,
+                        panel_state_for_app.scan_requested.clone(),
+                    );
 
                     // Show the panel on first launch
                     panel_state_for_app.show();

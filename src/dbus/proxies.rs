@@ -70,6 +70,10 @@ pub(crate) trait Device {
     /// Current active connection
     #[zbus(property)]
     fn active_connection(&self) -> zbus::Result<OwnedObjectPath>;
+
+    /// Device state changed (new_state, old_state, reason)
+    #[zbus(signal)]
+    fn state_changed(&self, new_state: u32, old_state: u32, reason: u32) -> zbus::Result<()>;
 }
 
 /// Proxy for org.freedesktop.NetworkManager.Device.Wireless
