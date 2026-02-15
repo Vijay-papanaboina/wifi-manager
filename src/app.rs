@@ -29,6 +29,7 @@ pub fn setup(
     widgets: &PanelWidgets,
     wifi: WifiManager,
     scan_requested: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    panel_state: crate::daemon::PanelState,
 ) {
     let state = Rc::new(RefCell::new(AppState {
         wifi,
@@ -42,6 +43,7 @@ pub fn setup(
     setup_password_actions(widgets, Rc::clone(&state));
     setup_live_updates(widgets, Rc::clone(&state));
     setup_scan_on_show(widgets, Rc::clone(&state), scan_requested);
+    setup_escape_key(widgets, panel_state);
     setup_initial_state(widgets, Rc::clone(&state));
 }
 
@@ -82,6 +84,21 @@ fn setup_scan_on_show(
         }
         glib::ControlFlow::Continue
     });
+}
+
+/// Set up Escape key handler to hide panel (with proper state tracking).
+fn setup_escape_key(widgets: &PanelWidgets, panel_state: crate::daemon::PanelState) {
+    use gtk4::{gdk, glib, prelude::*, EventControllerKey};
+    
+    let key_controller = EventControllerKey::new();
+    key_controller.connect_key_pressed(move |_, key, _, _| {
+        if key == gdk::Key::Escape {
+            panel_state.hide();
+            return glib::Propagation::Stop;
+        }
+        glib::Propagation::Proceed
+    });
+    widgets.window.add_controller(key_controller);
 }
 
 /// Clone the WifiManager out of the RefCell (avoids holding borrow across await).
@@ -241,6 +258,9 @@ fn setup_scan_button(widgets: &PanelWidgets, state: Rc<RefCell<AppState>>) {
     let status = widgets.status_label.clone();
     let scan_btn = widgets.scan_button.clone();
 
+    // Set scan button as default focus to avoid accidental WiFi toggle
+    scan_btn.grab_focus();
+
     scan_btn.connect_clicked(move |btn| {
         btn.set_sensitive(false);
         let state = Rc::clone(&state);
@@ -291,7 +311,8 @@ fn setup_wifi_toggle(widgets: &PanelWidgets, state: Rc<RefCell<AppState>>) {
                             refresh_list(&state, &list_box, &status).await;
                         } else {
                             status.set_text("WiFi disabled");
-                            network_list::populate_network_list(&list_box, &[]);
+                            let config = crate::config::Config::load();
+                            network_list::populate_network_list(&list_box, &[], &config);
                         }
                     }
                     Err(e) => {
@@ -473,7 +494,8 @@ async fn refresh_list(
                 None => status.set_text("Not connected"),
             }
 
-            network_list::populate_network_list(list_box, &nets);
+            let config = crate::config::Config::load();
+            network_list::populate_network_list(list_box, &nets, &config);
             log::info!("Network list refreshed: {} networks", nets.len());
             state.borrow_mut().networks = nets;
         }

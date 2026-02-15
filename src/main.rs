@@ -105,6 +105,7 @@ fn main() {
                         &widgets,
                         wifi,
                         panel_state_for_app.scan_requested.clone(),
+                        panel_state_for_app.clone(),
                     );
 
                     // Show the panel on first launch

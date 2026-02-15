@@ -28,7 +28,7 @@ pub fn build_network_list() -> (ScrolledWindow, ListBox) {
 }
 
 /// Clear the list and repopulate with the given networks.
-pub fn populate_network_list(list_box: &ListBox, networks: &[Network]) {
+pub fn populate_network_list(list_box: &ListBox, networks: &[Network], config: &crate::config::Config) {
     // Remove all existing rows
     while let Some(row) = list_box.first_child() {
         list_box.remove(&row);
@@ -42,7 +42,7 @@ pub fn populate_network_list(list_box: &ListBox, networks: &[Network]) {
     }
 
     for net in networks {
-        let row = network_row::build_network_row(net);
+        let row = network_row::build_network_row(net, config);
         list_box.append(&row);
     }
 }

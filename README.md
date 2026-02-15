@@ -135,9 +135,23 @@ margin_top = 10
 margin_right = 10
 margin_bottom = 10
 margin_left = 10
+
+# Custom signal strength icons [weak, fair, good, strong]
+# Default: Nerd Fonts WiFi icons
+signal_icons = ["󰤟", "󰤢", "󰤥", "󰤨"]
+
+# Alternative examples:
+# signal_icons = ["▂___", "▂▄__", "▂▄▆_", "▂▄▆█"]
 ```
 
 > **Note:** Margins only apply to edges the window is anchored to. For example, with `top-left`, only `margin_top` and `margin_left` have an effect. With `center`, no margins apply.
+
+**Signal Icon Ranges:**
+
+- `signal_icons[0]` (weak): 0-24% signal strength
+- `signal_icons[1]` (fair): 25-49% signal strength
+- `signal_icons[2]` (good): 50-74% signal strength
+- `signal_icons[3]` (strong): 75-100% signal strength
 
 ## Theming
 

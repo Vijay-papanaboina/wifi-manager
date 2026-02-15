@@ -42,6 +42,9 @@ pub struct Config {
 
     /// Margin from left edge in pixels
     pub margin_left: i32,
+
+    /// Custom signal strength icons [weak, fair, good, strong]
+    pub signal_icons: [String; 4],
 }
 
 impl Default for Config {
@@ -52,6 +55,12 @@ impl Default for Config {
             margin_right: 10,
             margin_bottom: 10,
             margin_left: 10,
+            signal_icons: [
+                "󰤟".to_string(),  // weak
+                "󰤢".to_string(),  // fair
+                "󰤥".to_string(),  // good
+                "󰤨".to_string(),  // strong
+            ],
         }
     }
 }

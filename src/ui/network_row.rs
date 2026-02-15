@@ -6,13 +6,20 @@ use gtk4::{Box as GtkBox, Label, ListBoxRow, Orientation};
 use crate::dbus::access_point::{Band, Network, SecurityType};
 
 /// Signal strength thresholds for icon selection.
-fn signal_icon(strength: u8) -> (&'static str, &'static str) {
-    match strength {
-        75..=100 => ("▂▄▆█", "signal-strong"),
-        50..=74 => ("▂▄▆_", "signal-good"),
-        25..=49 => ("▂▄__", "signal-fair"),
-        _ => ("▂___", "signal-weak"),
-    }
+fn signal_icon<'a>(strength: u8, icons: &'a [String; 4]) -> (&'a str, &'static str) {
+    let icon = match strength {
+        75..=100 => &icons[3],  // strong
+        50..=74 => &icons[2],   // good
+        25..=49 => &icons[1],   // fair
+        _ => &icons[0],         // weak
+    };
+    let class = match strength {
+        75..=100 => "signal-strong",
+        50..=74 => "signal-good",
+        25..=49 => "signal-fair",
+        _ => "signal-weak",
+    };
+    (icon.as_str(), class)
 }
 
 /// Security display icon.
@@ -26,7 +33,7 @@ fn security_icon(security: &SecurityType) -> &'static str {
 /// Build a `ListBoxRow` for a single network.
 ///
 /// The row displays: signal bars | SSID | band badge | security icon | status.
-pub fn build_network_row(network: &Network) -> ListBoxRow {
+pub fn build_network_row(network: &Network, config: &crate::config::Config) -> ListBoxRow {
     let row = ListBoxRow::new();
     row.add_css_class("network-row");
 
@@ -41,7 +48,7 @@ pub fn build_network_row(network: &Network) -> ListBoxRow {
     hbox.set_margin_bottom(2);
 
     // Signal strength icon
-    let (icon_text, signal_class) = signal_icon(network.strength);
+    let (icon_text, signal_class) = signal_icon(network.strength, &config.signal_icons);
     let signal_label = Label::new(Some(icon_text));
     signal_label.add_css_class("signal-icon");
     signal_label.add_css_class(signal_class);
