@@ -127,6 +127,7 @@ fn main() {
             match dbus::network_manager::WifiManager::new().await {
                 Ok(wifi) => {
                     log::info!("NetworkManager D-Bus connection established");
+                    let config = config::Config::load();
                     app::setup(
                         &widgets,
                         wifi,
@@ -134,8 +135,10 @@ fn main() {
                         panel_state_for_app.clone(),
                     );
 
-                    // Show the panel on first launch
-                    panel_state_for_app.show();
+                    // Only show panel on start if configured
+                    if config.show_on_start {
+                        panel_state_for_app.show();
+                    }
                 }
                 Err(e) => {
                     log::error!("Failed to connect to NetworkManager: {e}");

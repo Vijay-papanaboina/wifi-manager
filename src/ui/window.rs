@@ -17,6 +17,8 @@ pub struct PanelWidgets {
     pub status_label: gtk4::Label,
     pub scan_button: gtk4::Button,
     pub network_list_box: ListBox,
+    pub network_scroll: gtk4::ScrolledWindow,
+    pub spinner: gtk4::Spinner,
     pub password_revealer: gtk4::Revealer,
     pub password_entry: gtk4::Entry,
     pub connect_button: gtk4::Button,
@@ -57,7 +59,21 @@ pub fn build_window(app: &Application) -> PanelWidgets {
 
     // Network list
     let (scrolled, list_box) = network_list::build_network_list();
+
+    // Loading spinner (shown while scanning)
+    let spinner = gtk4::Spinner::new();
+    spinner.set_spinning(true);
+    spinner.add_css_class("loading-spinner");
+    spinner.set_size_request(32, 32);
+    spinner.set_halign(gtk4::Align::Center);
+    spinner.set_valign(gtk4::Align::Center);
+    spinner.set_margin_top(20);
+    spinner.set_margin_bottom(20);
+
+    // Stack to switch between spinner and list
+    main_box.append(&spinner);
     main_box.append(&scrolled);
+    scrolled.set_visible(false); // Hide list until loaded
 
     // Password entry section (hidden by default)
     let (revealer, entry, connect_btn, cancel_btn, error_label) =
@@ -79,6 +95,8 @@ pub fn build_window(app: &Application) -> PanelWidgets {
         status_label,
         scan_button,
         network_list_box: list_box,
+        network_scroll: scrolled,
+        spinner,
         password_revealer: revealer,
         password_entry: entry,
         connect_button: connect_btn,

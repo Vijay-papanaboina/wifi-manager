@@ -7,7 +7,6 @@ Cargo.lock
 *.pkg.tar.zst
 *.pkg.tar.zst.sig
 pkg/
-src/
 *.log
 
 # AUR repo directory

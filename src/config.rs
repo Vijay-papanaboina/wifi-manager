@@ -45,6 +45,9 @@ pub struct Config {
 
     /// Custom signal strength icons [weak, fair, good, strong]
     pub signal_icons: [String; 4],
+
+    /// Whether to show the panel when the daemon starts (default: false)
+    pub show_on_start: bool,
 }
 
 impl Default for Config {
@@ -61,6 +64,7 @@ impl Default for Config {
                 "󰤥".to_string(),  // good
                 "󰤨".to_string(),  // strong
             ],
+            show_on_start: false,
         }
     }
 }
