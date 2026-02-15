@@ -1,83 +1,107 @@
 /* ============================================================================
- * wifi-manager — Default dark theme (Catppuccin-inspired)
- * Users can override any class via ~/.config/wifi-manager/style.css
- * See examples/style.css for a full reference of available CSS classes.
+ * Modern WiFi Manager Theme
+ * Inspired by macOS Control Center / SwayNC / AGS widgets
  * ============================================================================ */
 
 /* ── Reset ─────────────────────────────────────────────────────────────────── */
 
-window {
+window,
+window > box,
+.background {
   background: transparent;
 }
 
-/* ── Main Panel ────────────────────────────────────────────────────────────── */
+/* ── Panel ─────────────────────────────────────────────────────────────────── */
 
 .wifi-panel {
-  background: linear-gradient(
-    180deg,
-    rgba(30, 30, 46, 0.95) 0%,
-    rgba(24, 24, 37, 0.95) 100%
-  );
-  border-radius: 14px;
-  border: 1px solid rgba(180, 190, 254, 0.12);
-  padding: 0;
+  background: rgba(12, 12, 18, 1);
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
   box-shadow:
-    0 8px 32px rgba(0, 0, 0, 0.45),
-    0 2px 8px rgba(0, 0, 0, 0.25);
+    0 16px 48px rgba(0, 0, 0, 0.55),
+    inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  padding: 0;
 }
 
 /* ── Header ────────────────────────────────────────────────────────────────── */
 
 .header {
-  padding: 14px 16px;
-  border-bottom: 1px solid rgba(180, 190, 254, 0.06);
+  padding: 16px 20px 14px;
+  border-bottom: none;
 }
 
-.header .status-label {
-  color: rgba(205, 214, 244, 0.9);
+.status-label {
+  color: rgba(255, 255, 255, 0.75);
   font-size: 13px;
-  font-weight: 500;
-  letter-spacing: 0.2px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
 }
 
-.header .scan-button {
-  min-width: 32px;
-  min-height: 32px;
-  padding: 4px;
-  border-radius: 8px;
-  background: rgba(180, 190, 254, 0.08);
-  color: rgba(180, 190, 254, 0.8);
-  border: 1px solid rgba(180, 190, 254, 0.06);
-  transition: all 150ms ease;
+.scan-button {
+  min-width: 30px;
+  min-height: 30px;
+  padding: 0;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.5);
+  border: none;
+  font-size: 14px;
 }
 
-.header .scan-button:hover {
-  background: rgba(180, 190, 254, 0.15);
-  color: rgba(180, 190, 254, 1);
-  border-color: rgba(180, 190, 254, 0.12);
+.scan-button:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.8);
 }
 
-.header .scan-button:active {
-  background: rgba(180, 190, 254, 0.22);
+.scan-button:active {
+  background: rgba(255, 255, 255, 0.14);
 }
 
 /* ── WiFi Toggle ───────────────────────────────────────────────────────────── */
 
 .wifi-toggle {
-  margin-right: 8px;
+  margin-right: 10px;
 }
 
-/* ── Loading Spinner ───────────────────────────────────────────────────────── */
+switch {
+  min-width: 44px;
+  min-height: 22px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.1);
+  border: none;
+}
+
+switch:checked {
+  background: rgba(50, 140, 255, 0.55);
+}
+
+switch slider {
+  min-width: 18px;
+  min-height: 18px;
+  margin: 2px;
+  border-radius: 999px;
+  background: #fff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+}
+
+switch:checked slider {
+  background: #fff;
+  box-shadow:
+    0 0 6px rgba(50, 140, 255, 0.4),
+    0 1px 4px rgba(0, 0, 0, 0.3);
+}
+
+/* ── Loading ───────────────────────────────────────────────────────────────── */
 
 .loading-spinner {
-  color: rgba(137, 180, 250, 0.8);
+  color: rgba(50, 140, 255, 0.6);
 }
 
 /* ── Network List ──────────────────────────────────────────────────────────── */
 
 .network-list {
   background: transparent;
-  padding: 4px 0;
+  padding: 2px 0 6px;
 }
 
 .network-scroll scrollbar {
@@ -85,240 +109,241 @@ window {
 }
 
 .network-scroll scrollbar slider {
-  background: rgba(180, 190, 254, 0.1);
+  background: rgba(255, 255, 255, 0.06);
   border-radius: 99px;
-  min-width: 4px;
+  min-width: 3px;
 }
 
 .network-scroll scrollbar slider:hover {
-  background: rgba(180, 190, 254, 0.2);
+  background: rgba(255, 255, 255, 0.12);
 }
 
 /* ── Network Rows ──────────────────────────────────────────────────────────── */
 
 .network-row {
-  padding: 10px 16px;
-  margin: 1px 6px;
-  border-radius: 10px;
-  transition: all 150ms ease;
+  padding: 11px 20px;
+  margin: 1px 10px;
+  border-radius: 12px;
+  border: 1px solid transparent;
 }
 
 .network-row:hover {
-  background: rgba(180, 190, 254, 0.06);
+  background: rgba(255, 255, 255, 0.04);
 }
 
 .network-row:active {
-  background: rgba(180, 190, 254, 0.1);
+  background: rgba(255, 255, 255, 0.07);
 }
 
-/* Connected row */
 .network-row.connected {
-  background: rgba(166, 227, 161, 0.06);
-  border: 1px solid rgba(166, 227, 161, 0.08);
+  background: rgba(50, 200, 130, 0.06);
+  border-color: rgba(50, 200, 130, 0.1);
 }
 
 .network-row.connected:hover {
-  background: rgba(166, 227, 161, 0.1);
-  border-color: rgba(166, 227, 161, 0.15);
+  background: rgba(50, 200, 130, 0.09);
 }
 
-/* Saved row */
-.network-row.saved {
-  opacity: 0.85;
+.network-row.saved:not(.connected) {
+  opacity: 0.75;
 }
-
-/* ── Row Content ───────────────────────────────────────────────────────────── */
 
 .network-row-content {
-  /* Inner hbox of each row — use for spacing adjustments */
+  margin: 0;
 }
 
-/* SSID */
+/* ── SSID ──────────────────────────────────────────────────────────────────── */
+
 .ssid-label {
-  color: rgba(205, 214, 244, 0.95);
-  font-size: 14px;
+  color: rgba(255, 255, 255, 0.88);
+  font-size: 13.5px;
   font-weight: 400;
 }
 
 .network-row.connected .ssid-label {
+  color: rgba(80, 220, 150, 0.95);
   font-weight: 600;
-  color: rgba(166, 227, 161, 0.95);
 }
 
-/* Signal strength icons */
+/* ── Signal Icons ──────────────────────────────────────────────────────────── */
+
 .signal-icon {
-  color: rgba(205, 214, 244, 0.5);
-  font-size: 12px;
-  min-width: 20px;
+  color: rgba(255, 255, 255, 0.35);
+  font-size: 14px;
+  min-width: 22px;
 }
 
 .signal-strong {
-  color: rgba(166, 227, 161, 0.9);
+  color: rgba(80, 220, 150, 0.85);
 }
 .signal-good {
-  color: rgba(249, 226, 175, 0.9);
+  color: rgba(255, 200, 80, 0.85);
 }
 .signal-fair {
-  color: rgba(250, 179, 135, 0.9);
+  color: rgba(255, 150, 80, 0.8);
 }
 .signal-weak {
-  color: rgba(243, 139, 168, 0.8);
+  color: rgba(255, 90, 100, 0.75);
 }
 
-/* Security lock icon */
+/* ── Security ──────────────────────────────────────────────────────────────── */
+
 .security-icon {
-  color: rgba(205, 214, 244, 0.4);
+  color: rgba(255, 255, 255, 0.25);
   font-size: 12px;
-  margin-left: 4px;
+  margin-left: 6px;
 }
 
-/* Band badge (5G) */
+/* ── Band Badge ────────────────────────────────────────────────────────────── */
+
 .band-badge {
-  font-size: 9px;
-  font-weight: 700;
-  color: rgba(137, 180, 250, 0.85);
-  padding: 1px 5px;
-  border-radius: 4px;
-  background: rgba(137, 180, 250, 0.12);
-  margin-left: 6px;
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+  color: rgba(50, 140, 255, 0.9);
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: rgba(50, 140, 255, 0.1);
+  margin-left: 8px;
 }
 
-/* Connected checkmark */
+/* ── Connected / Saved indicators ──────────────────────────────────────────── */
+
 .connected-icon {
-  color: rgba(166, 227, 161, 0.9);
+  color: rgba(80, 220, 150, 0.85);
   font-size: 14px;
-  margin-left: 6px;
+  margin-left: 8px;
 }
 
-/* Saved label */
 .saved-label {
-  font-size: 10px;
-  color: rgba(205, 214, 244, 0.3);
-  margin-left: 6px;
+  font-size: 9px;
+  font-weight: 500;
+  letter-spacing: 0.5px;
+  color: rgba(255, 255, 255, 0.2);
+  margin-left: 8px;
 }
 
-/* Three-dot menu button */
+/* ── Three-dot Menu ────────────────────────────────────────────────────────── */
+
 .network-menu-btn {
-  color: rgba(205, 214, 244, 0.4);
+  color: rgba(255, 255, 255, 0.2);
   min-width: 24px;
   min-height: 24px;
   padding: 0;
-  border: none;
   background: none;
-  border-radius: 6px;
-  transition: all 150ms ease;
+  border: none;
+  border-radius: 50%;
 }
 
 .network-menu-btn:hover {
-  color: rgba(205, 214, 244, 0.8);
+  color: rgba(255, 255, 255, 0.6);
   background: rgba(255, 255, 255, 0.06);
 }
 
-/* Popover menu */
+/* ── Popover ───────────────────────────────────────────────────────────────── */
+
 .network-popover {
-  background: rgba(30, 30, 46, 0.98);
-  border: 1px solid rgba(180, 190, 254, 0.12);
-  border-radius: 10px;
+  background: rgba(20, 20, 28, 0.96);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
   padding: 4px;
 }
 
+.network-popover > contents {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+}
+
 .network-popover modelbutton {
-  padding: 6px 12px;
-  border-radius: 6px;
-  color: rgba(243, 139, 168, 0.9);
-  font-size: 13px;
+  background: transparent;
+  color: rgba(255, 90, 100, 0.85);
+  padding: 8px 14px;
+  border-radius: 8px;
+  font-size: 12.5px;
+  font-weight: 500;
 }
 
 .network-popover modelbutton:hover {
-  background: rgba(243, 139, 168, 0.1);
+  background: rgba(255, 90, 100, 0.08);
 }
 
-/* Empty state */
+/* ── Empty State ───────────────────────────────────────────────────────────── */
+
 .empty-label {
-  color: rgba(205, 214, 244, 0.3);
-  font-size: 13px;
-  padding: 40px 20px;
+  color: rgba(255, 255, 255, 0.15);
+  font-size: 12px;
+  font-weight: 400;
+  padding: 48px 20px;
 }
 
 /* ── Password Dialog ───────────────────────────────────────────────────────── */
 
 .password-section {
-  padding: 10px 16px 14px 16px;
-  margin: 0 6px 4px 6px;
-  border-radius: 0 0 10px 10px;
-  background: rgba(180, 190, 254, 0.03);
-  border-top: 1px solid rgba(180, 190, 254, 0.06);
+  padding: 12px 20px 16px;
+  margin: 0 10px 6px;
+  background: rgba(255, 255, 255, 0.02);
+  border-top: 1px solid rgba(255, 255, 255, 0.04);
+  border-radius: 0 0 12px 12px;
 }
 
 .password-entry {
-  background: rgba(24, 24, 37, 0.8);
-  border: 1px solid rgba(180, 190, 254, 0.15);
-  border-radius: 8px;
-  padding: 8px 12px;
-  color: rgba(205, 214, 244, 0.95);
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  padding: 10px 14px;
+  color: rgba(255, 255, 255, 0.9);
   font-size: 13px;
-  caret-color: rgba(137, 180, 250, 0.9);
-  transition: border-color 150ms ease;
+  caret-color: rgba(50, 140, 255, 0.85);
 }
 
 .password-entry:focus {
-  border-color: rgba(137, 180, 250, 0.5);
-  outline: none;
-  box-shadow: 0 0 0 2px rgba(137, 180, 250, 0.1);
+  border-color: rgba(50, 140, 255, 0.35);
+  box-shadow: 0 0 0 3px rgba(50, 140, 255, 0.06);
 }
 
 .password-buttons {
-  /* Button row — use for custom spacing */
+  margin-top: 6px;
 }
 
 .connect-button {
-  background: linear-gradient(
-    135deg,
-    rgba(137, 180, 250, 0.25) 0%,
-    rgba(180, 190, 254, 0.2) 100%
-  );
-  color: rgba(137, 180, 250, 0.95);
-  border: 1px solid rgba(137, 180, 250, 0.15);
-  border-radius: 8px;
-  padding: 6px 18px;
-  font-size: 13px;
+  background: rgba(50, 140, 255, 0.2);
+  color: rgba(50, 140, 255, 0.95);
+  border: none;
+  border-radius: 10px;
+  padding: 8px 22px;
+  font-size: 12.5px;
   font-weight: 600;
-  min-height: 34px;
-  transition: all 150ms ease;
+  min-height: 36px;
 }
 
 .connect-button:hover {
-  background: linear-gradient(
-    135deg,
-    rgba(137, 180, 250, 0.35) 0%,
-    rgba(180, 190, 254, 0.3) 100%
-  );
-  border-color: rgba(137, 180, 250, 0.3);
+  background: rgba(50, 140, 255, 0.3);
 }
 
 .connect-button:active {
-  background: rgba(137, 180, 250, 0.4);
+  background: rgba(50, 140, 255, 0.38);
 }
 
 .cancel-button {
   background: transparent;
-  color: rgba(205, 214, 244, 0.5);
+  color: rgba(255, 255, 255, 0.35);
   border: none;
-  border-radius: 8px;
-  padding: 6px 14px;
-  font-size: 13px;
-  min-height: 34px;
-  transition: all 150ms ease;
+  border-radius: 10px;
+  padding: 8px 14px;
+  font-size: 12.5px;
+  min-height: 36px;
 }
 
 .cancel-button:hover {
-  background: rgba(255, 255, 255, 0.05);
-  color: rgba(205, 214, 244, 0.7);
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(255, 255, 255, 0.5);
 }
 
-/* Error label */
+/* ── Error ─────────────────────────────────────────────────────────────────── */
+
 .error-label {
-  color: rgba(243, 139, 168, 0.9);
-  font-size: 12px;
-  margin-top: 4px;
+  color: rgba(255, 90, 100, 0.85);
+  font-size: 11px;
 }
