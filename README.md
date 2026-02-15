@@ -2,9 +2,11 @@
 
 A lightweight, native WiFi manager for Wayland compositors. Built with Rust, GTK4, and layer-shell — designed as a proper alternative to `nmtui`, `nm-applet`, and rofi-based scripts.
 
+> **Status:** wifi-manager is under active development. Interfaces and configuration may change between releases.
+
 ## Why
 
-There is no standalone GUI WiFi manager that works well on Wayland window managers:
+There is no widely adopted standalone GUI WiFi manager designed specifically for Wayland compositors:
 
 | Existing tool          | Problem                                                          |
 | ---------------------- | ---------------------------------------------------------------- |
@@ -29,42 +31,67 @@ There is no standalone GUI WiFi manager that works well on Wayland window manage
 - **Configurable position** — 9 anchor positions with per-edge margin offsets
 - **Custom CSS theming** — override the default dark theme with your own styles
 
-## Requirements
+## Installation
+
+### Arch Linux (AUR)
+
+**Package:** `wifi-manager-git` — tracks the latest development version from the `master` branch.
+
+```sh
+yay -S wifi-manager-git
+# or
+paru -S wifi-manager-git
+```
+
+> **Note:** A stable release package (`wifi-manager`) will be available once v1.0.0 is tagged.
+
+### Runtime Dependencies
+
+The following must be installed and running on your system:
+
+- **NetworkManager** — system network service
+- **GTK4** — UI toolkit
+- **gtk4-layer-shell** — Wayland layer-shell integration
+
+These are automatically installed as dependencies when using the AUR package.
+
+### Other Distributions (Build from Source)
+
+**Requirements:**
 
 - Linux with Wayland (Hyprland, Sway, or any wlroots-based compositor)
 - [NetworkManager](https://networkmanager.dev/) as the system network service
 - GTK4 and gtk4-layer-shell libraries
 - Rust toolchain (1.70+)
 
-### System Dependencies
+**System Dependencies:**
 
 **Arch Linux:**
 
 ```sh
-sudo pacman -S gtk4 gtk4-layer-shell networkmanager
+sudo pacman -S gtk4 gtk4-layer-shell networkmanager rust
 ```
 
 **Fedora:**
 
 ```sh
-sudo dnf install gtk4-devel gtk4-layer-shell-devel NetworkManager
+sudo dnf install gtk4-devel gtk4-layer-shell-devel NetworkManager rust cargo
 ```
 
 **Ubuntu/Debian:**
 
 ```sh
-sudo apt install libgtk-4-dev libgtk4-layer-shell-dev network-manager
+sudo apt install libgtk-4-dev libgtk4-layer-shell-dev network-manager cargo
 ```
 
-## Build
+**Build:**
 
 ```sh
 git clone https://github.com/Vijay-papanaboina/wifi-manager.git
 cd wifi-manager
 cargo build --release
+sudo install -Dm755 target/release/wifi-manager /usr/local/bin/wifi-manager
 ```
-
-The binary will be at `./target/release/wifi-manager`.
 
 ## Usage
 

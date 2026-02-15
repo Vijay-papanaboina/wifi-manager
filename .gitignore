@@ -1,1 +1,25 @@
+# Rust build artifacts
 /target
+Cargo.lock
+
+# AUR files (belong in aur-wifi-manager-git/ only)
+.SRCINFO
+*.pkg.tar.zst
+*.pkg.tar.zst.sig
+pkg/
+src/
+*.log
+
+# AUR repo directory
+aur-wifi-manager-git/
+
+# IDE / Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
