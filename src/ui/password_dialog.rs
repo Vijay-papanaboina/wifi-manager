@@ -12,6 +12,7 @@ use gtk4::{
 /// The revealer wraps the section — show/hide by calling `revealer.set_reveal_child()`.
 pub fn build_password_section() -> (Revealer, Entry, Button, Button, Label) {
     let revealer = Revealer::new();
+    revealer.add_css_class("password-revealer");
     revealer.set_transition_type(RevealerTransitionType::SlideDown);
     revealer.set_transition_duration(200);
     revealer.set_reveal_child(false);
@@ -49,6 +50,7 @@ pub fn build_password_section() -> (Revealer, Entry, Button, Button, Label) {
 
     // Buttons row
     let button_box = GtkBox::new(Orientation::Horizontal, 8);
+    button_box.add_css_class("password-buttons");
     button_box.set_halign(gtk4::Align::End);
     button_box.set_margin_top(4);
 

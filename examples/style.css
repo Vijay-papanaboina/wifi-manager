@@ -1,0 +1,218 @@
+/* ============================================================================
+ * wifi-manager — CSS Class Reference
+ *
+ * Copy this file to ~/.config/wifi-manager/style.css and customize.
+ * User CSS has FULL override power over the default theme.
+ * Only include the classes you want to change — everything else uses defaults.
+ * ============================================================================ */
+
+/* ── Layout Structure ──────────────────────────────────────────────────────
+ *
+ *  window
+ *   └── .wifi-panel                    Main panel container
+ *       ├── .header                    Header bar
+ *       │   ├── .wifi-toggle           WiFi on/off switch
+ *       │   ├── .status-label          "Connected to X" / "Not connected"
+ *       │   └── .scan-button           Refresh/scan button
+ *       ├── .loading-spinner           Shown while scanning
+ *       ├── .network-scroll            Scrollable area
+ *       │   └── .network-list          ListBox container
+ *       │       ├── .network-row       One per network (also: .connected, .saved)
+ *       │       │   └── .network-row-content   Inner horizontal layout
+ *       │       │       ├── .signal-icon       Signal bars (also: .signal-strong/good/fair/weak)
+ *       │       │       ├── .ssid-label        Network name
+ *       │       │       ├── .band-badge        "5G" badge (5 GHz only)
+ *       │       │       ├── .security-icon     Lock/unlock icon
+ *       │       │       ├── .connected-icon    ✓ checkmark (connected only)
+ *       │       │       ├── .saved-label       "saved" text (saved only)
+ *       │       │       └── .network-menu-btn  ⋮ three-dot menu (saved/connected)
+ *       │       │           └── .network-popover   Forget popover menu
+ *       │       └── .empty-label       "No networks found" placeholder
+ *       └── .password-revealer         Slide-down animation wrapper
+ *           └── .password-section      Password dialog container
+ *               ├── .password-entry    Password input field
+ *               ├── .error-label       Error message text
+ *               └── .password-buttons  Button row
+ *                   ├── .cancel-button
+ *                   └── .connect-button
+ *
+ * ────────────────────────────────────────────────────────────────────────── */
+
+/* ── Main Panel ──────────────────────────────────────────────────────────── */
+
+/* .wifi-panel {
+  background: rgba(30, 30, 46, 0.95);
+  border-radius: 14px;
+  border: 1px solid rgba(180, 190, 254, 0.12);
+} */
+
+/* ── Header ──────────────────────────────────────────────────────────────── */
+
+/* .header {
+  padding: 14px 16px;
+  border-bottom: 1px solid rgba(180, 190, 254, 0.06);
+} */
+
+/* .status-label {
+  color: rgba(205, 214, 244, 0.9);
+  font-size: 13px;
+} */
+
+/* .scan-button {
+  background: rgba(180, 190, 254, 0.08);
+  color: rgba(180, 190, 254, 0.8);
+  border-radius: 8px;
+} */
+
+/* .wifi-toggle {
+  margin-right: 8px;
+} */
+
+/* ── Loading ─────────────────────────────────────────────────────────────── */
+
+/* .loading-spinner {
+  color: rgba(137, 180, 250, 0.8);
+} */
+
+/* ── Network List & Scrollbar ────────────────────────────────────────────── */
+
+/* .network-list {
+  background: transparent;
+} */
+
+/* .network-scroll scrollbar slider {
+  background: rgba(180, 190, 254, 0.1);
+  border-radius: 99px;
+  min-width: 4px;
+} */
+
+/* ── Network Rows ────────────────────────────────────────────────────────── */
+
+/* .network-row {
+  padding: 10px 16px;
+  margin: 1px 6px;
+  border-radius: 10px;
+} */
+
+/* .network-row:hover {
+  background: rgba(180, 190, 254, 0.06);
+} */
+
+/* .network-row.connected {
+  background: rgba(166, 227, 161, 0.06);
+  border: 1px solid rgba(166, 227, 161, 0.08);
+} */
+
+/* .network-row.saved {
+  opacity: 0.85;
+} */
+
+/* ── Row Elements ────────────────────────────────────────────────────────── */
+
+/* .ssid-label {
+  color: rgba(205, 214, 244, 0.95);
+  font-size: 14px;
+} */
+
+/* .network-row.connected .ssid-label {
+  color: rgba(166, 227, 161, 0.95);
+  font-weight: 600;
+} */
+
+/* .signal-icon {
+  font-size: 12px;
+  min-width: 20px;
+} */
+
+/* Signal strength colors */
+/* .signal-strong { color: rgba(166, 227, 161, 0.9); }
+.signal-good   { color: rgba(249, 226, 175, 0.9); }
+.signal-fair   { color: rgba(250, 179, 135, 0.9); }
+.signal-weak   { color: rgba(243, 139, 168, 0.8); } */
+
+/* .security-icon {
+  color: rgba(205, 214, 244, 0.4);
+  font-size: 12px;
+} */
+
+/* .band-badge {
+  font-size: 9px;
+  font-weight: 700;
+  color: rgba(137, 180, 250, 0.85);
+  background: rgba(137, 180, 250, 0.12);
+  border-radius: 4px;
+} */
+
+/* .connected-icon {
+  color: rgba(166, 227, 161, 0.9);
+  font-size: 14px;
+} */
+
+/* .saved-label {
+  font-size: 10px;
+  color: rgba(205, 214, 244, 0.3);
+} */
+
+/* ── Menu Button & Popover ───────────────────────────────────────────────── */
+
+/* .network-menu-btn {
+  color: rgba(205, 214, 244, 0.4);
+  background: none;
+  border: none;
+} */
+
+/* .network-menu-btn:hover {
+  color: rgba(205, 214, 244, 0.8);
+  background: rgba(255, 255, 255, 0.06);
+} */
+
+/* .network-popover {
+  background: rgba(30, 30, 46, 0.98);
+  border: 1px solid rgba(180, 190, 254, 0.12);
+  border-radius: 10px;
+} */
+
+/* ── Empty State ─────────────────────────────────────────────────────────── */
+
+/* .empty-label {
+  color: rgba(205, 214, 244, 0.3);
+  font-size: 13px;
+  padding: 40px 20px;
+} */
+
+/* ── Password Dialog ─────────────────────────────────────────────────────── */
+
+/* .password-section {
+  padding: 10px 16px 14px 16px;
+  background: rgba(180, 190, 254, 0.03);
+  border-top: 1px solid rgba(180, 190, 254, 0.06);
+} */
+
+/* .password-entry {
+  background: rgba(24, 24, 37, 0.8);
+  border: 1px solid rgba(180, 190, 254, 0.15);
+  border-radius: 8px;
+  color: rgba(205, 214, 244, 0.95);
+} */
+
+/* .password-entry:focus {
+  border-color: rgba(137, 180, 250, 0.5);
+  box-shadow: 0 0 0 2px rgba(137, 180, 250, 0.1);
+} */
+
+/* .connect-button {
+  background: rgba(137, 180, 250, 0.25);
+  color: rgba(137, 180, 250, 0.95);
+  border-radius: 8px;
+  font-weight: 600;
+} */
+
+/* .cancel-button {
+  background: transparent;
+  color: rgba(205, 214, 244, 0.5);
+} */
+
+/* .error-label {
+  color: rgba(243, 139, 168, 0.9);
+  font-size: 12px;
+} */

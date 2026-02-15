@@ -48,6 +48,7 @@ pub fn build_network_row(
     }
 
     let hbox = GtkBox::new(Orientation::Horizontal, 8);
+    hbox.add_css_class("network-row-content");
     hbox.set_margin_top(2);
     hbox.set_margin_bottom(2);
 
