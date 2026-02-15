@@ -100,7 +100,8 @@ pub fn build_network_row(
         menu.append(Some("Forget"), Some("row.forget"));
         
         let popover = PopoverMenu::from_model(Some(&menu));
-        
+        popover.add_css_class("network-popover");
+
         let menu_btn = MenuButton::new();
         menu_btn.set_label("⋮");
         menu_btn.add_css_class("network-menu-btn");

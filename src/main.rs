@@ -16,6 +16,10 @@ struct Args {
     /// Toggle the panel visibility (sends signal to running daemon)
     #[arg(long)]
     toggle: bool,
+
+    /// Reload config and CSS (sends signal to running daemon)
+    #[arg(long)]
+    reload: bool,
 }
 
 const APP_ID: &str = "com.github.wifi_manager.WifiManager";
@@ -36,6 +40,28 @@ fn main() {
                     Err(e) => {
                         log::error!("Failed to send toggle: {e}");
                         eprintln!("Error: could not toggle — is wifi-manager running?");
+                    }
+                }
+            } else {
+                eprintln!("No running instance found. Start with: wifi-manager");
+            }
+        });
+        return;
+    }
+
+    if args.reload {
+        // Send Reload() to running daemon and exit
+        let rt = glib::MainContext::default();
+        rt.block_on(async {
+            if daemon::is_instance_running().await {
+                match daemon::send_reload().await {
+                    Ok(_) => {
+                        log::info!("Reload sent to running instance");
+                        println!("Config and CSS reloaded");
+                    }
+                    Err(e) => {
+                        log::error!("Failed to send reload: {e}");
+                        eprintln!("Error: could not reload — is wifi-manager running?");
                     }
                 }
             } else {

@@ -24,6 +24,8 @@ pub struct PanelState {
     pub visible: Arc<AtomicBool>,
     /// Flag set by show() — polled by GTK main thread to trigger scan-on-show.
     pub scan_requested: Arc<AtomicBool>,
+    /// Flag set by reload() — polled by GTK main thread to reload config/CSS.
+    pub reload_requested: Arc<AtomicBool>,
     /// Callback to toggle visibility — dispatches to GTK main thread.
     toggle_fn: ToggleFn,
 }
@@ -33,6 +35,7 @@ impl PanelState {
         Self {
             visible: Arc::new(AtomicBool::new(false)),
             scan_requested: Arc::new(AtomicBool::new(false)),
+            reload_requested: Arc::new(AtomicBool::new(false)),
             toggle_fn: Arc::new(toggle_fn),
         }
     }
@@ -80,6 +83,12 @@ impl DaemonInterface {
     fn hide(&self) {
         log::info!("D-Bus Hide() called");
         self.state.hide();
+    }
+
+    /// Reload config and CSS.
+    fn reload(&self) {
+        log::info!("D-Bus Reload() called");
+        self.state.reload_requested.store(true, Ordering::Relaxed);
     }
 
     /// Check if the panel is visible.
@@ -132,5 +141,16 @@ pub async fn send_toggle() -> zbus::Result<()> {
         .await?;
 
     log::info!("Toggle sent to running instance");
+    Ok(())
+}
+
+/// Send Reload() to the running daemon.
+pub async fn send_reload() -> zbus::Result<()> {
+    let conn = zbus::Connection::session().await?;
+
+    conn.call_method(Some(DBUS_NAME), DBUS_PATH, Some(DBUS_NAME), "Reload", &())
+        .await?;
+
+    log::info!("Reload sent to running instance");
     Ok(())
 }

@@ -30,6 +30,10 @@ There is no widely adopted standalone GUI WiFi manager designed specifically for
 - **Layer-shell overlay** — floating panel with no window decorations, positioned via config
 - **Configurable position** — 9 anchor positions with per-edge margin offsets
 - **Custom CSS theming** — override the default dark theme with your own styles
+- **Customizable signal icons** — configure signal strength icons via config
+- **Forget network** — remove saved connections via the ⋮ menu on each network
+- **Live reload** — reload config and CSS without restarting (`--reload`)
+- **Escape to close** — press Escape to hide the panel
 
 ## Installation
 
@@ -101,6 +105,9 @@ wifi-manager
 
 # Toggle panel visibility
 wifi-manager --toggle
+
+# Reload config and CSS without restarting
+wifi-manager --reload
 ```
 
 ### Hyprland Integration

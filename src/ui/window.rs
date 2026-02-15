@@ -118,6 +118,26 @@ fn load_css() {
     }
 }
 
+/// Reload user CSS (for --reload flag).
+pub fn reload_css() {
+    let display = gdk::Display::default().expect("Could not get default display");
+
+    // Reload optional user theme override
+    if let Some(config_dir) = dirs_config_path() {
+        let user_css_path = config_dir.join("style.css");
+        if user_css_path.exists() {
+            let user_provider = CssProvider::new();
+            user_provider.load_from_path(user_css_path.to_str().unwrap_or_default());
+            gtk4::style_context_add_provider_for_display(
+                &display,
+                &user_provider,
+                gtk4::STYLE_PROVIDER_PRIORITY_USER,
+            );
+            log::info!("User CSS reloaded from {:?}", user_css_path);
+        }
+    }
+}
+
 /// Get the config directory: ~/.config/wifi-manager/
 fn dirs_config_path() -> Option<std::path::PathBuf> {
     let home = std::env::var("HOME").ok()?;

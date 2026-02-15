@@ -43,7 +43,9 @@ pub fn setup(
     setup_password_actions(widgets, Rc::clone(&state));
     setup_live_updates(widgets, Rc::clone(&state));
     setup_scan_on_show(widgets, Rc::clone(&state), scan_requested);
+    let reload_requested = panel_state.reload_requested.clone();
     setup_escape_key(widgets, panel_state);
+    setup_reload_on_request(widgets, Rc::clone(&state), reload_requested);
     setup_initial_state(widgets, Rc::clone(&state));
 }
 
@@ -99,6 +101,33 @@ fn setup_escape_key(widgets: &PanelWidgets, panel_state: crate::daemon::PanelSta
         glib::Propagation::Proceed
     });
     widgets.window.add_controller(key_controller);
+}
+
+/// Poll the reload_requested flag and reload config/CSS when set.
+fn setup_reload_on_request(
+    widgets: &PanelWidgets,
+    state: Rc<RefCell<AppState>>,
+    reload_requested: std::sync::Arc<std::sync::atomic::AtomicBool>,
+) {
+    let list_box = widgets.network_list_box.clone();
+    let status = widgets.status_label.clone();
+
+    glib::timeout_add_local(std::time::Duration::from_millis(200), move || {
+        if reload_requested.swap(false, std::sync::atomic::Ordering::Relaxed) {
+            log::info!("Reload requested - refreshing network list with new config");
+            let state = Rc::clone(&state);
+            let list_box = list_box.clone();
+            let status = status.clone();
+
+            glib::spawn_future_local(async move {
+                // Reload CSS
+                crate::ui::window::reload_css();
+                // Refresh network list (which will reload config for icons)
+                refresh_list(&state, &list_box, &status).await;
+            });
+        }
+        glib::ControlFlow::Continue
+    });
 }
 
 /// Clone the WifiManager out of the RefCell (avoids holding borrow across await).
