@@ -312,7 +312,8 @@ fn setup_wifi_toggle(widgets: &PanelWidgets, state: Rc<RefCell<AppState>>) {
                         } else {
                             status.set_text("WiFi disabled");
                             let config = crate::config::Config::load();
-                            network_list::populate_network_list(&list_box, &[], &config);
+                            let wifi = get_wifi(&state);
+                            network_list::populate_network_list(&list_box, &[], &config, &wifi, &status);
                         }
                     }
                     Err(e) => {
@@ -495,7 +496,7 @@ async fn refresh_list(
             }
 
             let config = crate::config::Config::load();
-            network_list::populate_network_list(list_box, &nets, &config);
+            network_list::populate_network_list(list_box, &nets, &config, &wifi, status);
             log::info!("Network list refreshed: {} networks", nets.len());
             state.borrow_mut().networks = nets;
         }

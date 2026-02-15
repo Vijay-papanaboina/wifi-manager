@@ -169,4 +169,7 @@ pub(crate) trait SettingsConnection {
     fn get_settings(
         &self,
     ) -> zbus::Result<HashMap<String, HashMap<String, zbus::zvariant::OwnedValue>>>;
+
+    /// Delete this connection profile
+    fn delete(&self) -> zbus::Result<()>;
 }

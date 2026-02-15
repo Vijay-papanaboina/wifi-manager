@@ -4,7 +4,7 @@
 //! loads the CSS theme, and sets up layer-shell positioning.
 
 use gtk4::prelude::*;
-use gtk4::{glib, Application, ApplicationWindow, Box as GtkBox, CssProvider, EventControllerKey, ListBox, Orientation, gdk};
+use gtk4::{Application, ApplicationWindow, Box as GtkBox, CssProvider, ListBox, Orientation, gdk};
 use gtk4_layer_shell::{Edge, KeyboardMode, Layer, LayerShell};
 
 use super::{header, network_list, password_dialog};

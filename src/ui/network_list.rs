@@ -28,7 +28,15 @@ pub fn build_network_list() -> (ScrolledWindow, ListBox) {
 }
 
 /// Clear the list and repopulate with the given networks.
-pub fn populate_network_list(list_box: &ListBox, networks: &[Network], config: &crate::config::Config) {
+pub fn populate_network_list(
+    list_box: &ListBox,
+    networks: &[Network],
+    config: &crate::config::Config,
+    wifi: &crate::dbus::network_manager::WifiManager,
+    status: &gtk4::Label,
+) {
+    use gtk4::{glib, prelude::*};
+    
     // Remove all existing rows
     while let Some(row) = list_box.first_child() {
         list_box.remove(&row);
@@ -41,8 +49,34 @@ pub fn populate_network_list(list_box: &ListBox, networks: &[Network], config: &
         return;
     }
 
+    let wifi = wifi.clone();
+    let list_box_clone = list_box.clone();
+    let status_clone = status.clone();
+
     for net in networks {
-        let row = network_row::build_network_row(net, config);
+        let wifi_clone = wifi.clone();
+        let list_box_clone2 = list_box_clone.clone();
+        let status_clone2 = status_clone.clone();
+        
+        let row = network_row::build_network_row(net, config, move |ssid| {
+            let wifi = wifi_clone.clone();
+            let _list_box = list_box_clone2.clone();
+            let status = status_clone2.clone();
+            
+            glib::spawn_future_local(async move {
+                status.set_text(&format!("Forgetting {}...", ssid));
+                match wifi.forget_network(&ssid).await {
+                    Ok(_) => {
+                        status.set_text(&format!("Forgot {}", ssid));
+                        // Refresh will happen via live updates signal
+                    }
+                    Err(e) => {
+                        log::error!("Forget failed: {e}");
+                        status.set_text(&format!("Failed to forget: {}", e));
+                    }
+                }
+            });
+        });
         list_box.append(&row);
     }
 }

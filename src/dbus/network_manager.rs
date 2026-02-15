@@ -250,6 +250,24 @@ impl WifiManager {
         let nm = NetworkManagerProxy::new(&self.connection).await?;
         nm.wireless_enabled().await
     }
+    /// Forget (delete) a saved network by its SSID.
+    pub async fn forget_network(&self, ssid: &str) -> zbus::Result<()> {
+        let saved = self.get_saved_wifi_ssids().await?;
+        if let Some(conn_path) = saved.get(ssid) {
+            let conn = SettingsConnectionProxy::builder(&self.connection)
+                .path(conn_path.as_str())?
+                .build()
+                .await?;
+            conn.delete().await?;
+            log::info!("Forgot network: {ssid}");
+            Ok(())
+        } else {
+            log::warn!("Network not found in saved connections: {ssid}");
+            Err(zbus::Error::Failure(format!(
+                "No saved connection for '{ssid}'"
+            )))
+        }
+    }
 
     // ========================================================================
     // Private helpers

@@ -33,7 +33,11 @@ fn security_icon(security: &SecurityType) -> &'static str {
 /// Build a `ListBoxRow` for a single network.
 ///
 /// The row displays: signal bars | SSID | band badge | security icon | status.
-pub fn build_network_row(network: &Network, config: &crate::config::Config) -> ListBoxRow {
+pub fn build_network_row(
+    network: &Network,
+    config: &crate::config::Config,
+    on_forget: impl Fn(String) + 'static,
+) -> ListBoxRow {
     let row = ListBoxRow::new();
     row.add_css_class("network-row");
 
@@ -86,6 +90,38 @@ pub fn build_network_row(network: &Network, config: &crate::config::Config) -> L
         let saved = Label::new(Some("saved"));
         saved.add_css_class("saved-label");
         hbox.append(&saved);
+    }
+
+    // Menu button (only for saved networks)
+    if network.is_saved || network.is_connected {
+        use gtk4::{MenuButton, PopoverMenu, gio};
+        
+        let menu = gio::Menu::new();
+        menu.append(Some("Forget"), Some("row.forget"));
+        
+        let popover = PopoverMenu::from_model(Some(&menu));
+        
+        let menu_btn = MenuButton::new();
+        menu_btn.set_label("⋮");
+        menu_btn.add_css_class("network-menu-btn");
+        menu_btn.add_css_class("flat");  // Remove button background
+        menu_btn.set_has_frame(false);   // Remove button frame
+        menu_btn.set_direction(gtk4::ArrowType::None);  // Remove arrow
+        menu_btn.set_popover(Some(&popover));
+        menu_btn.set_halign(gtk4::Align::End);
+        
+        // Add action to the row
+        let action = gio::SimpleAction::new("forget", None);
+        let ssid = network.ssid.clone();
+        action.connect_activate(move |_, _| {
+            on_forget(ssid.clone());
+        });
+        
+        let action_group = gio::SimpleActionGroup::new();
+        action_group.add_action(&action);
+        row.insert_action_group("row", Some(&action_group));
+        
+        hbox.append(&menu_btn);
     }
 
     row.set_child(Some(&hbox));
