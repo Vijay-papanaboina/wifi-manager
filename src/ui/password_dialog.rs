@@ -17,8 +17,15 @@ pub fn build_password_section() -> (Revealer, Entry, Button, Button, Label) {
     revealer.set_transition_duration(200);
     revealer.set_reveal_child(false);
 
-    let vbox = GtkBox::new(Orientation::Vertical, 6);
+    let vbox = GtkBox::new(Orientation::Vertical, 8);
     vbox.add_css_class("password-section");
+
+    // Title label (to be updated with network name)
+    let title = Label::new(None);
+    title.set_markup("Enter password for network"); // Placeholder
+    title.add_css_class("password-title");
+    title.set_halign(gtk4::Align::Start);
+    vbox.append(&title);
 
     // Password entry
     let entry = Entry::new();

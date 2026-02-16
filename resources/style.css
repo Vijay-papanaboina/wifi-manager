@@ -1,5 +1,5 @@
 /* ============================================================================
- * Modern WiFi Manager Theme
+ * Modern WiFi Manager Theme — Structural Redesign
  * Inspired by macOS Control Center / SwayNC / AGS widgets
  * ============================================================================ */
 
@@ -14,65 +14,64 @@ window > box,
 /* ── Panel ─────────────────────────────────────────────────────────────────── */
 
 .wifi-panel {
-  background: rgba(12, 12, 18, 1);
+  background: rgba(20, 22, 30, 0.95);
   border-radius: 16px;
-  border: 1px solid rgba(255, 255, 255, 0.05);
-  box-shadow:
-    0 16px 48px rgba(0, 0, 0, 0.55),
-    inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.6);
   padding: 0;
+}
+
+.header-separator {
+  background-color: rgba(255, 255, 255, 0.06);
+  margin: 0;
 }
 
 /* ── Header ────────────────────────────────────────────────────────────────── */
 
 .header {
-  padding: 16px 20px 14px;
-  border-bottom: none;
+  padding: 16px 20px;
+}
+
+.header-title {
+  color: #ffffff;
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: -0.2px;
 }
 
 .status-label {
-  color: rgba(255, 255, 255, 0.75);
-  font-size: 13px;
-  font-weight: 600;
-  letter-spacing: 0.3px;
+  color: rgba(255, 255, 255, 0.45);
+  font-size: 11px;
+  font-weight: 500;
 }
 
 .scan-button {
-  min-width: 30px;
-  min-height: 30px;
-  padding: 0;
+  min-width: 32px;
+  min-height: 32px;
   border-radius: 50%;
   background: rgba(255, 255, 255, 0.06);
-  color: rgba(255, 255, 255, 0.5);
+  color: rgba(255, 255, 255, 0.6);
   border: none;
-  font-size: 14px;
+  transition: all 150ms ease;
 }
 
 .scan-button:hover {
-  background: rgba(255, 255, 255, 0.1);
-  color: rgba(255, 255, 255, 0.8);
+  background: rgba(255, 255, 255, 0.12);
+  color: #ffffff;
 }
 
-.scan-button:active {
-  background: rgba(255, 255, 255, 0.14);
-}
-
-/* ── WiFi Toggle ───────────────────────────────────────────────────────────── */
-
-.wifi-toggle {
-  margin-right: 10px;
-}
+/* ── Switch ────────────────────────────────────────────────────────────────── */
 
 switch {
   min-width: 44px;
   min-height: 22px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.12);
   border: none;
 }
 
 switch:checked {
-  background: rgba(50, 140, 255, 0.55);
+  background: #3584e4;
 }
 
 switch slider {
@@ -80,270 +79,174 @@ switch slider {
   min-height: 18px;
   margin: 2px;
   border-radius: 999px;
-  background: #fff;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
-}
-
-switch:checked slider {
-  background: #fff;
-  box-shadow:
-    0 0 6px rgba(50, 140, 255, 0.4),
-    0 1px 4px rgba(0, 0, 0, 0.3);
-}
-
-/* ── Loading ───────────────────────────────────────────────────────────────── */
-
-.loading-spinner {
-  color: rgba(50, 140, 255, 0.6);
+  background: #ffffff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
 }
 
 /* ── Network List ──────────────────────────────────────────────────────────── */
 
 .network-list {
   background: transparent;
-  padding: 2px 0 6px;
-}
-
-.network-scroll scrollbar {
-  background: transparent;
+  padding: 6px 0;
 }
 
 .network-scroll scrollbar slider {
-  background: rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.08);
   border-radius: 99px;
-  min-width: 3px;
-}
-
-.network-scroll scrollbar slider:hover {
-  background: rgba(255, 255, 255, 0.12);
+  min-width: 4px;
 }
 
 /* ── Network Rows ──────────────────────────────────────────────────────────── */
 
 .network-row {
-  padding: 11px 20px;
-  margin: 1px 10px;
+  padding: 12px 20px;
+  margin: 2px 8px;
   border-radius: 12px;
-  border: 1px solid transparent;
+  transition: all 150ms ease;
 }
 
 .network-row:hover {
-  background: rgba(255, 255, 255, 0.04);
-}
-
-.network-row:active {
-  background: rgba(255, 255, 255, 0.07);
+  background: rgba(255, 255, 255, 0.05);
 }
 
 .network-row.connected {
-  background: rgba(50, 200, 130, 0.06);
-  border-color: rgba(50, 200, 130, 0.1);
-}
-
-.network-row.connected:hover {
-  background: rgba(50, 200, 130, 0.09);
-}
-
-.network-row.saved:not(.connected) {
-  opacity: 0.75;
-}
-
-.network-row-content {
-  margin: 0;
-}
-
-/* ── SSID ──────────────────────────────────────────────────────────────────── */
-
-.ssid-label {
-  color: rgba(255, 255, 255, 0.88);
-  font-size: 13.5px;
-  font-weight: 400;
+  background: rgba(53, 132, 228, 0.12);
 }
 
 .network-row.connected .ssid-label {
-  color: rgba(80, 220, 150, 0.95);
-  font-weight: 600;
+  color: #ffffff;
+  font-weight: 700;
 }
 
-/* ── Signal Icons ──────────────────────────────────────────────────────────── */
+.ssid-label {
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.network-subtitle {
+  color: rgba(255, 255, 255, 0.4);
+  font-size: 11px;
+  font-weight: 400;
+}
+
+.network-row.connected .network-subtitle {
+  color: rgba(255, 255, 255, 0.7);
+}
 
 .signal-icon {
-  color: rgba(255, 255, 255, 0.35);
-  font-size: 14px;
-  min-width: 22px;
+  font-size: 16px;
+  min-width: 24px;
 }
 
 .signal-strong {
-  color: rgba(80, 220, 150, 0.85);
+  color: #57e389;
 }
 .signal-good {
-  color: rgba(255, 200, 80, 0.85);
+  color: #f9f06b;
 }
 .signal-fair {
-  color: rgba(255, 150, 80, 0.8);
+  color: #ffbe6f;
 }
 .signal-weak {
-  color: rgba(255, 90, 100, 0.75);
+  color: #f5c211;
 }
 
-/* ── Security ──────────────────────────────────────────────────────────────── */
-
 .security-icon {
-  color: rgba(255, 255, 255, 0.25);
-  font-size: 12px;
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.4);
   margin-left: 6px;
 }
 
-/* ── Band Badge ────────────────────────────────────────────────────────────── */
-
-.band-badge {
-  font-size: 8px;
-  font-weight: 800;
-  letter-spacing: 0.5px;
-  color: rgba(50, 140, 255, 0.9);
-  padding: 2px 6px;
-  border-radius: 6px;
-  background: rgba(50, 140, 255, 0.1);
-  margin-left: 8px;
-}
-
-/* ── Connected / Saved indicators ──────────────────────────────────────────── */
-
-.connected-icon {
-  color: rgba(80, 220, 150, 0.85);
+.saved-icon {
   font-size: 14px;
-  margin-left: 8px;
+  color: #3584e4;
+  margin-left: 6px;
 }
-
-.saved-label {
-  font-size: 9px;
-  font-weight: 500;
-  letter-spacing: 0.5px;
-  color: rgba(255, 255, 255, 0.2);
-  margin-left: 8px;
-}
-
-/* ── Three-dot Menu ────────────────────────────────────────────────────────── */
 
 .network-menu-btn {
-  color: rgba(255, 255, 255, 0.2);
-  min-width: 24px;
-  min-height: 24px;
-  padding: 0;
-  background: none;
-  border: none;
+  color: rgba(255, 255, 255, 0.3);
+  min-width: 28px;
+  min-height: 28px;
   border-radius: 50%;
+  transition: all 150ms ease;
 }
 
 .network-menu-btn:hover {
-  color: rgba(255, 255, 255, 0.6);
-  background: rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.1);
+  color: #ffffff;
 }
 
 /* ── Popover ───────────────────────────────────────────────────────────────── */
 
 .network-popover {
-  background: rgba(20, 20, 28, 0.96);
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: #242424;
+  border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 12px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
   padding: 4px;
-}
-
-.network-popover > contents {
-  background: transparent;
-  border: none;
-  box-shadow: none;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
 }
 
 .network-popover modelbutton {
-  background: transparent;
-  color: rgba(255, 90, 100, 0.85);
-  padding: 8px 14px;
+  padding: 8px 16px;
   border-radius: 8px;
-  font-size: 12.5px;
-  font-weight: 500;
+  color: #ff7b63;
 }
 
 .network-popover modelbutton:hover {
-  background: rgba(255, 90, 100, 0.08);
+  background: rgba(255, 123, 99, 0.1);
 }
 
-/* ── Empty State ───────────────────────────────────────────────────────────── */
-
-.empty-label {
-  color: rgba(255, 255, 255, 0.15);
-  font-size: 12px;
-  font-weight: 400;
-  padding: 48px 20px;
-}
-
-/* ── Password Dialog ───────────────────────────────────────────────────────── */
+/* ── Password Section ──────────────────────────────────────────────────────── */
 
 .password-section {
-  padding: 12px 20px 16px;
-  margin: 0 10px 6px;
-  background: rgba(255, 255, 255, 0.02);
-  border-top: 1px solid rgba(255, 255, 255, 0.04);
-  border-radius: 0 0 12px 12px;
+  padding: 16px 20px;
+  background: rgba(255, 255, 255, 0.03);
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 0 0 16px 16px;
+}
+
+.password-title {
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 600;
+  margin-bottom: 2px;
 }
 
 .password-entry {
-  background: rgba(0, 0, 0, 0.3);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 10px;
   padding: 10px 14px;
-  color: rgba(255, 255, 255, 0.9);
-  font-size: 13px;
-  caret-color: rgba(50, 140, 255, 0.85);
+  color: #ffffff;
 }
 
 .password-entry:focus {
-  border-color: rgba(50, 140, 255, 0.35);
-  box-shadow: 0 0 0 3px rgba(50, 140, 255, 0.06);
-}
-
-.password-buttons {
-  margin-top: 6px;
+  border-color: #3584e4;
+  box-shadow: 0 0 0 2px rgba(53, 132, 228, 0.3);
 }
 
 .connect-button {
-  background: rgba(50, 140, 255, 0.2);
-  color: rgba(50, 140, 255, 0.95);
+  background: #3584e4;
+  color: #ffffff;
   border: none;
   border-radius: 10px;
-  padding: 8px 22px;
-  font-size: 12.5px;
-  font-weight: 600;
-  min-height: 36px;
+  padding: 8px 16px;
+  font-weight: 700;
 }
 
 .connect-button:hover {
-  background: rgba(50, 140, 255, 0.3);
-}
-
-.connect-button:active {
-  background: rgba(50, 140, 255, 0.38);
+  background: #4a91e9;
 }
 
 .cancel-button {
   background: transparent;
-  color: rgba(255, 255, 255, 0.35);
+  color: rgba(255, 255, 255, 0.6);
   border: none;
   border-radius: 10px;
-  padding: 8px 14px;
-  font-size: 12.5px;
-  min-height: 36px;
+  padding: 8px 16px;
 }
 
 .cancel-button:hover {
-  background: rgba(255, 255, 255, 0.04);
-  color: rgba(255, 255, 255, 0.5);
-}
-
-/* ── Error ─────────────────────────────────────────────────────────────────── */
-
-.error-label {
-  color: rgba(255, 90, 100, 0.85);
-  font-size: 11px;
+  background: rgba(255, 255, 255, 0.08);
 }

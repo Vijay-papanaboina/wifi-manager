@@ -46,6 +46,12 @@ pub struct Config {
     /// Custom signal strength icons [weak, fair, good, strong]
     pub signal_icons: [String; 4],
 
+    /// Custom lock icon for secured networks
+    pub lock_icon: String,
+
+    /// Custom saved icon for saved networks
+    pub saved_icon: String,
+
     /// Whether to show the panel when the daemon starts (default: false)
     pub show_on_start: bool,
 }
@@ -64,6 +70,8 @@ impl Default for Config {
                 "󰤥".to_string(),  // good
                 "󰤨".to_string(),  // strong
             ],
+            lock_icon: "".to_string(),
+            saved_icon: "".to_string(),
             show_on_start: false,
         }
     }

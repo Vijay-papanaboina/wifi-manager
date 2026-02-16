@@ -33,7 +33,7 @@ pub fn build_window(app: &Application) -> PanelWidgets {
     let window = ApplicationWindow::builder()
         .application(app)
         .title("WiFi Manager")
-        .default_width(380)
+        .default_width(340)
         .default_height(400)
         .build();
 
@@ -56,6 +56,11 @@ pub fn build_window(app: &Application) -> PanelWidgets {
     // Header
     let (header_box, wifi_switch, status_label, scan_button) = header::build_header();
     main_box.append(&header_box);
+
+    // Separator
+    let sep = gtk4::Separator::new(Orientation::Horizontal);
+    sep.add_css_class("header-separator");
+    main_box.append(&sep);
 
     // Network list
     let (scrolled, list_box) = network_list::build_network_list();
