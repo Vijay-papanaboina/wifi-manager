@@ -6,6 +6,8 @@
 //! - `live_updates` — D-Bus signal subscriptions for real-time changes
 //! - `shortcuts` — Escape key, reload polling
 
+mod bluetooth;
+mod bt_live_updates;
 mod connection;
 mod live_updates;
 mod scanning;
@@ -14,7 +16,11 @@ mod shortcuts;
 use std::cell::RefCell;
 use std::rc::Rc;
 
+use gtk4::prelude::*;
+
 use crate::dbus::access_point::Network;
+use crate::dbus::bluetooth_device::BluetoothDevice;
+use crate::dbus::bluetooth_manager::BluetoothManager;
 use crate::dbus::network_manager::WifiManager;
 use crate::ui::network_list;
 use crate::ui::window::PanelWidgets;
@@ -26,6 +32,10 @@ struct AppState {
     networks: Vec<Network>,
     /// Index of the currently selected network (for password entry).
     selected_index: Option<usize>,
+    /// Bluetooth manager (None if no adapter found).
+    bluetooth: Option<BluetoothManager>,
+    /// Bluetooth device list — refreshed on BT scan.
+    bt_devices: Vec<BluetoothDevice>,
 }
 
 /// Set up all event handlers, kick off the initial scan, start live updates,
@@ -40,6 +50,8 @@ pub fn setup(
         wifi,
         networks: Vec::new(),
         selected_index: None,
+        bluetooth: None,
+        bt_devices: Vec::new(),
     }));
 
     scanning::setup_scan_button(widgets, Rc::clone(&state));
@@ -48,6 +60,9 @@ pub fn setup(
     connection::setup_password_actions(widgets, Rc::clone(&state));
     live_updates::setup_live_updates(widgets, Rc::clone(&state));
     scanning::setup_scan_on_show(widgets, Rc::clone(&state), scan_requested);
+    bluetooth::setup_bluetooth(widgets, Rc::clone(&state));
+    bt_live_updates::setup_bt_live_updates(widgets, Rc::clone(&state));
+    setup_bt_scan_button(widgets, Rc::clone(&state));
     let reload_requested = panel_state.reload_requested.clone();
     shortcuts::setup_escape_key(widgets, panel_state);
     shortcuts::setup_reload_on_request(widgets, Rc::clone(&state), reload_requested);
@@ -87,4 +102,49 @@ async fn refresh_list(
             status.set_text("Failed to load networks");
         }
     }
+}
+
+/// Wire the scan button to also trigger BT discovery when on BT tab.
+fn setup_bt_scan_button(widgets: &PanelWidgets, state: Rc<RefCell<AppState>>) {
+    let bt_tab = widgets.bt_tab.clone();
+    let bt_list_box = widgets.bt_list_box.clone();
+    let bt_spinner = widgets.bt_spinner.clone();
+    let bt_scroll = widgets.bt_scroll.clone();
+    let status = widgets.status_label.clone();
+    let scan_btn = widgets.scan_button.clone();
+
+    // We prepend a handler that checks if BT tab is active.
+    // If so, it does BT scan instead of WiFi scan.
+    scan_btn.connect_clicked(move |btn| {
+        if !bt_tab.is_active() {
+            return; // Let the WiFi scan handler deal with it
+        }
+
+        btn.set_sensitive(false);
+        let state = Rc::clone(&state);
+        let bt_list_box = bt_list_box.clone();
+        let bt_spinner = bt_spinner.clone();
+        let bt_scroll = bt_scroll.clone();
+        let status = status.clone();
+        let btn = btn.clone();
+
+        bt_spinner.set_visible(true);
+        bt_spinner.set_spinning(true);
+        bt_scroll.set_visible(false);
+
+        gtk4::glib::spawn_future_local(async move {
+            if let Some(bt) = state.borrow().bluetooth.clone() {
+                if let Err(e) = bt.start_discovery().await {
+                    log::warn!("BT scan failed: {e}");
+                }
+                gtk4::glib::timeout_future(std::time::Duration::from_millis(2000)).await;
+                bluetooth::refresh_bt_list(&state, &bt_list_box, &status).await;
+            }
+
+            bt_spinner.set_spinning(false);
+            bt_spinner.set_visible(false);
+            bt_scroll.set_visible(true);
+            btn.set_sensitive(true);
+        });
+    });
 }
