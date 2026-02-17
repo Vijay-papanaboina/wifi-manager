@@ -1,21 +1,29 @@
 //! Main floating panel window with layer-shell support.
 //!
-//! Composes the header, network list, and password dialog into the panel,
-//! loads the CSS theme, and sets up layer-shell positioning.
+//! Composes the header, network list, Bluetooth device list, and password
+//! dialog into the panel. Uses a GtkStack to switch between Wi-Fi and
+//! Bluetooth views based on the header tab selection.
 
 use gtk4::prelude::*;
-use gtk4::{Application, ApplicationWindow, Box as GtkBox, CssProvider, ListBox, Orientation, gdk};
+use gtk4::{
+    Application, ApplicationWindow, Box as GtkBox, CssProvider, ListBox, Orientation, Stack,
+    StackTransitionType, gdk,
+};
 use gtk4_layer_shell::{Edge, KeyboardMode, Layer, LayerShell};
 
-use super::{header, network_list, password_dialog};
+use super::{device_list, header, network_list, password_dialog};
 use crate::config::{Config, Position};
 
 /// All the UI handles needed by the app controller.
 pub struct PanelWidgets {
     pub window: ApplicationWindow,
     pub wifi_switch: gtk4::Switch,
+    pub title_label: gtk4::Label,
     pub status_label: gtk4::Label,
     pub scan_button: gtk4::Button,
+    pub wifi_tab: gtk4::ToggleButton,
+    pub bt_tab: gtk4::ToggleButton,
+    // Wi-Fi page
     pub network_list_box: ListBox,
     pub network_scroll: gtk4::ScrolledWindow,
     pub spinner: gtk4::Spinner,
@@ -24,6 +32,12 @@ pub struct PanelWidgets {
     pub connect_button: gtk4::Button,
     pub cancel_button: gtk4::Button,
     pub error_label: gtk4::Label,
+    // Bluetooth page
+    pub bt_list_box: ListBox,
+    pub bt_scroll: gtk4::ScrolledWindow,
+    pub bt_spinner: gtk4::Spinner,
+    // Content stack
+    pub content_stack: Stack,
 }
 
 /// Build the main floating panel window with all UI components.
@@ -54,18 +68,25 @@ pub fn build_window(app: &Application) -> PanelWidgets {
     main_box.add_css_class("wifi-panel");
 
     // Header
-    let (header_box, wifi_switch, status_label, scan_button) = header::build_header();
-    main_box.append(&header_box);
+    let header = header::build_header();
+    main_box.append(&header.container);
 
     // Separator
     let sep = gtk4::Separator::new(Orientation::Horizontal);
     sep.add_css_class("header-separator");
     main_box.append(&sep);
 
-    // Network list
+    // ── Content Stack (switches between Wi-Fi and Bluetooth pages) ──
+    let content_stack = Stack::new();
+    content_stack.set_transition_type(StackTransitionType::Crossfade);
+    content_stack.set_transition_duration(150);
+    content_stack.add_css_class("content-stack");
+
+    // ── Wi-Fi page ──────────────────────────────────────────────────
+    let wifi_page = GtkBox::new(Orientation::Vertical, 0);
+
     let (scrolled, list_box) = network_list::build_network_list();
 
-    // Loading spinner (shown while scanning)
     let spinner = gtk4::Spinner::new();
     spinner.set_spinning(true);
     spinner.add_css_class("loading-spinner");
@@ -75,30 +96,86 @@ pub fn build_window(app: &Application) -> PanelWidgets {
     spinner.set_margin_top(20);
     spinner.set_margin_bottom(20);
 
-    // Stack to switch between spinner and list
-    main_box.append(&spinner);
-    main_box.append(&scrolled);
-    scrolled.set_visible(false); // Hide list until loaded
+    wifi_page.append(&spinner);
+    wifi_page.append(&scrolled);
+    scrolled.set_visible(false);
 
-    // Password entry section (hidden by default)
     let (revealer, entry, connect_btn, cancel_btn, error_label) =
         password_dialog::build_password_section();
-    main_box.append(&revealer);
+    wifi_page.append(&revealer);
+
+    content_stack.add_named(&wifi_page, Some("wifi"));
+
+    // ── Bluetooth page ─────────────────────────────────────────────
+    let bt_page = GtkBox::new(Orientation::Vertical, 0);
+
+    let (bt_scrolled, bt_list_box) = device_list::build_device_list();
+
+    let bt_spinner = gtk4::Spinner::new();
+    bt_spinner.set_spinning(true);
+    bt_spinner.add_css_class("loading-spinner");
+    bt_spinner.set_size_request(32, 32);
+    bt_spinner.set_halign(gtk4::Align::Center);
+    bt_spinner.set_valign(gtk4::Align::Center);
+    bt_spinner.set_margin_top(20);
+    bt_spinner.set_margin_bottom(20);
+
+    bt_page.append(&bt_spinner);
+    bt_page.append(&bt_scrolled);
+    bt_scrolled.set_visible(false);
+
+    content_stack.add_named(&bt_page, Some("bluetooth"));
+
+    // Start on Wi-Fi page
+    content_stack.set_visible_child_name("wifi");
+    main_box.append(&content_stack);
+
+    // ── Tab switching logic ─────────────────────────────────────────
+    {
+        let stack = content_stack.clone();
+        let title = header.title_label.clone();
+        let status = header.status_label.clone();
+        let switch = header.toggle_switch.clone();
+        header.wifi_tab.connect_toggled(move |btn| {
+            if btn.is_active() {
+                stack.set_visible_child_name("wifi");
+                title.set_text("Wi-Fi");
+                switch.set_tooltip_text(Some("Enable/Disable Wi-Fi"));
+                // Status will be refreshed by the app controller
+                status.set_text("Checking status...");
+            }
+        });
+    }
+    {
+        let stack = content_stack.clone();
+        let title = header.title_label.clone();
+        let status = header.status_label.clone();
+        let switch = header.toggle_switch.clone();
+        header.bt_tab.connect_toggled(move |btn| {
+            if btn.is_active() {
+                stack.set_visible_child_name("bluetooth");
+                title.set_text("Bluetooth");
+                switch.set_tooltip_text(Some("Enable/Disable Bluetooth"));
+                status.set_text("Checking status...");
+            }
+        });
+    }
 
     window.set_child(Some(&main_box));
 
     // Load CSS theme
     load_css();
 
-    // Window starts hidden — daemon controls visibility via Toggle/Show
-    // window.present() is NOT called here; the daemon will show it on demand.
     log::info!("Layer-shell panel built (hidden)");
 
     PanelWidgets {
         window,
-        wifi_switch,
-        status_label,
-        scan_button,
+        wifi_switch: header.toggle_switch,
+        title_label: header.title_label,
+        status_label: header.status_label,
+        scan_button: header.scan_button,
+        wifi_tab: header.wifi_tab,
+        bt_tab: header.bt_tab,
         network_list_box: list_box,
         network_scroll: scrolled,
         spinner,
@@ -107,6 +184,10 @@ pub fn build_window(app: &Application) -> PanelWidgets {
         connect_button: connect_btn,
         cancel_button: cancel_btn,
         error_label,
+        bt_list_box,
+        bt_scroll: bt_scrolled,
+        bt_spinner,
+        content_stack,
     }
 }
 
