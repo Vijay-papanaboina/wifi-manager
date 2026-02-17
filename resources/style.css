@@ -250,3 +250,128 @@ switch slider {
 .cancel-button:hover {
   background: rgba(255, 255, 255, 0.08);
 }
+
+/* ── Tab Bar ───────────────────────────────────────────────────────────────── */
+
+.tab-bar {
+  padding: 14px 20px 6px;
+}
+
+.tab-button {
+  background: transparent;
+  color: rgba(255, 255, 255, 0.5);
+  border: none;
+  border-radius: 10px;
+  padding: 8px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  transition: all 150ms ease;
+}
+
+.tab-button:hover {
+  color: rgba(255, 255, 255, 0.7);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.tab-button:checked {
+  background: rgba(53, 132, 228, 0.15);
+  color: #78aeed;
+}
+
+/* ── Bluetooth Device List ─────────────────────────────────────────────────── */
+
+.device-list {
+  background: transparent;
+  padding: 6px 0;
+}
+
+.device-scroll scrollbar slider {
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 99px;
+  min-width: 4px;
+}
+
+/* ── Bluetooth Device Rows ─────────────────────────────────────────────────── */
+
+.device-row {
+  padding: 12px 20px;
+  margin: 2px 8px;
+  border-radius: 12px;
+  transition: all 150ms ease;
+}
+
+.device-row:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.device-row.connected {
+  background: rgba(53, 132, 228, 0.12);
+}
+
+.device-row.connected .device-name {
+  color: #ffffff;
+  font-weight: 700;
+}
+
+.device-name {
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.device-subtitle {
+  color: rgba(255, 255, 255, 0.4);
+  font-size: 11px;
+  font-weight: 400;
+}
+
+.device-row.connected .device-subtitle {
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.device-icon {
+  font-size: 16px;
+  min-width: 24px;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.device-row.connected .device-icon {
+  color: #3584e4;
+}
+
+.trusted-icon {
+  font-size: 14px;
+  color: #57e389;
+  margin-left: 6px;
+}
+
+.device-menu-btn {
+  color: rgba(255, 255, 255, 0.3);
+  min-width: 28px;
+  min-height: 28px;
+  border-radius: 50%;
+  transition: all 150ms ease;
+}
+
+.device-menu-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #ffffff;
+}
+
+.device-popover {
+  background: #242424;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  padding: 4px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+}
+
+.device-popover modelbutton {
+  padding: 8px 16px;
+  border-radius: 8px;
+  color: #ff7b63;
+}
+
+.device-popover modelbutton:hover {
+  background: rgba(255, 123, 99, 0.1);
+}

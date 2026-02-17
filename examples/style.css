@@ -216,3 +216,82 @@
   color: rgba(243, 139, 168, 0.9);
   font-size: 12px;
 } */
+
+/* ── Tab Bar ─────────────────────────────────────────────────────────────── */
+
+/* .tab-bar {
+  padding: 8px 20px 0;
+} */
+
+/* .tab-button {
+  background: transparent;
+  color: rgba(205, 214, 244, 0.5);
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 600;
+} */
+
+/* .tab-button:checked {
+  background: rgba(137, 180, 250, 0.15);
+  color: rgba(137, 180, 250, 0.9);
+} */
+
+/* ── Bluetooth Device List ───────────────────────────────────────────────── */
+
+/* .device-list {
+  background: transparent;
+} */
+
+/* .device-scroll scrollbar slider {
+  background: rgba(180, 190, 254, 0.1);
+  border-radius: 99px;
+  min-width: 4px;
+} */
+
+/* .device-row {
+  padding: 10px 16px;
+  margin: 1px 6px;
+  border-radius: 10px;
+} */
+
+/* .device-row:hover {
+  background: rgba(180, 190, 254, 0.06);
+} */
+
+/* .device-row.connected {
+  background: rgba(166, 227, 161, 0.06);
+  border: 1px solid rgba(166, 227, 161, 0.08);
+} */
+
+/* .device-name {
+  color: rgba(205, 214, 244, 0.95);
+  font-size: 14px;
+} */
+
+/* .device-subtitle {
+  color: rgba(205, 214, 244, 0.4);
+  font-size: 11px;
+} */
+
+/* .device-icon {
+  font-size: 16px;
+  min-width: 24px;
+  color: rgba(205, 214, 244, 0.6);
+} */
+
+/* .trusted-icon {
+  color: rgba(166, 227, 161, 0.9);
+  font-size: 14px;
+} */
+
+/* .device-menu-btn {
+  color: rgba(205, 214, 244, 0.4);
+  background: none;
+  border: none;
+} */
+
+/* .device-popover {
+  background: rgba(30, 30, 46, 0.98);
+  border: 1px solid rgba(180, 190, 254, 0.12);
+  border-radius: 10px;
+} */
