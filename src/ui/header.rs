@@ -81,8 +81,8 @@ pub fn build_header() -> HeaderWidgets {
     tab_bar.append(&wifi_tab);
     tab_bar.append(&bt_tab);
 
-    container.append(&top_row);
     container.append(&tab_bar);
+    container.append(&top_row);
 
     HeaderWidgets {
         container,

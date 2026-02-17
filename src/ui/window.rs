@@ -130,33 +130,22 @@ pub fn build_window(app: &Application) -> PanelWidgets {
     content_stack.set_visible_child_name("wifi");
     main_box.append(&content_stack);
 
-    // ── Tab switching logic ─────────────────────────────────────────
+    // ── Tab switching — only manages content stack page ──────────────
+    // Title, status, and switch sync is handled by app controllers
+    // which can do async D-Bus calls to query actual power state.
     {
         let stack = content_stack.clone();
-        let title = header.title_label.clone();
-        let status = header.status_label.clone();
-        let switch = header.toggle_switch.clone();
         header.wifi_tab.connect_toggled(move |btn| {
             if btn.is_active() {
                 stack.set_visible_child_name("wifi");
-                title.set_text("Wi-Fi");
-                switch.set_tooltip_text(Some("Enable/Disable Wi-Fi"));
-                // Status will be refreshed by the app controller
-                status.set_text("Checking status...");
             }
         });
     }
     {
         let stack = content_stack.clone();
-        let title = header.title_label.clone();
-        let status = header.status_label.clone();
-        let switch = header.toggle_switch.clone();
         header.bt_tab.connect_toggled(move |btn| {
             if btn.is_active() {
                 stack.set_visible_child_name("bluetooth");
-                title.set_text("Bluetooth");
-                switch.set_tooltip_text(Some("Enable/Disable Bluetooth"));
-                status.set_text("Checking status...");
             }
         });
     }

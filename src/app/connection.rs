@@ -12,14 +12,20 @@ use crate::ui::window::PanelWidgets;
 
 use super::{AppState, get_wifi, refresh_list};
 
-/// Wire the WiFi toggle switch.
+/// Wire the WiFi toggle switch (only when WiFi tab is active).
 pub(super) fn setup_wifi_toggle(widgets: &PanelWidgets, state: Rc<RefCell<AppState>>) {
     let list_box = widgets.network_list_box.clone();
     let status = widgets.status_label.clone();
+    let wifi_tab = widgets.wifi_tab.clone();
 
     widgets
         .wifi_switch
         .connect_state_set(move |_switch, enabled| {
+            // Only handle WiFi toggle when WiFi tab is active
+            if !wifi_tab.is_active() {
+                return glib::Propagation::Proceed;
+            }
+
             let state = Rc::clone(&state);
             let list_box = list_box.clone();
             let status = status.clone();

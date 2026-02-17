@@ -63,6 +63,7 @@ pub fn setup(
     bluetooth::setup_bluetooth(widgets, Rc::clone(&state));
     bt_live_updates::setup_bt_live_updates(widgets, Rc::clone(&state));
     setup_bt_scan_button(widgets, Rc::clone(&state));
+    setup_wifi_tab_sync(widgets, Rc::clone(&state));
     let reload_requested = panel_state.reload_requested.clone();
     shortcuts::setup_escape_key(widgets, panel_state);
     shortcuts::setup_reload_on_request(widgets, Rc::clone(&state), reload_requested);
@@ -145,6 +146,44 @@ fn setup_bt_scan_button(widgets: &PanelWidgets, state: Rc<RefCell<AppState>>) {
             bt_spinner.set_visible(false);
             bt_scroll.set_visible(true);
             btn.set_sensitive(true);
+        });
+    });
+}
+
+/// Sync the toggle switch to WiFi power state when WiFi tab is activated.
+fn setup_wifi_tab_sync(widgets: &PanelWidgets, state: Rc<RefCell<AppState>>) {
+    let wifi_tab = widgets.wifi_tab.clone();
+    let switch = widgets.wifi_switch.clone();
+    let title = widgets.title_label.clone();
+    let status = widgets.status_label.clone();
+    let list_box = widgets.network_list_box.clone();
+    let scan_btn = widgets.scan_button.clone();
+
+    wifi_tab.connect_toggled(move |btn| {
+        if !btn.is_active() {
+            return;
+        }
+
+        title.set_text("Wi-Fi");
+        switch.set_tooltip_text(Some("Enable/Disable Wi-Fi"));
+        scan_btn.set_tooltip_text(Some("Scan for networks"));
+
+        let state = Rc::clone(&state);
+        let switch = switch.clone();
+        let status = status.clone();
+        let list_box = list_box.clone();
+
+        gtk4::glib::spawn_future_local(async move {
+            let wifi = get_wifi(&state);
+
+            // Sync switch to actual WiFi power state
+            match wifi.is_wifi_enabled().await {
+                Ok(enabled) => switch.set_active(enabled),
+                Err(e) => log::error!("Failed to get WiFi state on tab switch: {e}"),
+            }
+
+            // Refresh network list
+            refresh_list(&state, &list_box, &status).await;
         });
     });
 }
