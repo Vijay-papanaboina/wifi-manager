@@ -4,6 +4,11 @@ A lightweight, native WiFi and Bluetooth manager for Wayland compositors. Built 
 
 > **Status:** wifi-manager is under active development. Interfaces and configuration may change between releases.
 
+<p align="center">
+  <img src="examples/images/wifi1.webp" width="100%" />
+  <img src="examples/images/bluetooth1.webp" width="100%" />
+</p>
+
 ## Why
 
 There is no widely adopted standalone GUI WiFi manager designed specifically for Wayland compositors:
