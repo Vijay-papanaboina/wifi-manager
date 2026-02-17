@@ -1,6 +1,6 @@
 # wifi-manager
 
-A lightweight, native WiFi manager for Wayland compositors. Built with Rust, GTK4, and layer-shell — designed as a proper alternative to `nmtui`, `nm-applet`, and rofi-based scripts.
+A lightweight, native WiFi and Bluetooth manager for Wayland compositors. Built with Rust, GTK4, and layer-shell — designed as a proper alternative to `nmtui`, `nm-applet`, `blueman`, and rofi-based scripts.
 
 > **Status:** wifi-manager is under active development. Interfaces and configuration may change between releases.
 
@@ -16,9 +16,11 @@ There is no widely adopted standalone GUI WiFi manager designed specifically for
 | `iwgtk`                | Requires iwd, most distros use NetworkManager                    |
 | Rofi/wofi scripts      | No real UI — no signal bars, no live updates, no visual feedback |
 
-**wifi-manager** fills this gap: a floating panel that scans, lists, and connects to WiFi networks with a proper GUI, live state updates, and full theming support.
+**wifi-manager** fills this gap: a floating panel that manages WiFi and Bluetooth with a proper GUI, live state updates, and full theming support.
 
 ## Features
+
+### WiFi
 
 - **Scan and list** available WiFi networks with signal strength, frequency band, and security info
 - **Connect** to open, WPA2, and WPA3 networks with inline password entry
@@ -26,6 +28,23 @@ There is no widely adopted standalone GUI WiFi manager designed specifically for
 - **Live updates** — UI reflects WiFi state changes in real time (D-Bus signal subscriptions)
 - **Scan-on-show** — automatically rescans when the panel is toggled visible
 - **WiFi toggle** — enable/disable the wireless radio directly from the panel
+- **Forget network** — remove saved connections via the ⋮ menu on each network
+
+### Bluetooth
+
+- **Device discovery** — scan for nearby Bluetooth devices
+- **Connect/disconnect** — manage paired and new devices
+- **Pairing** — "Just Works" pairing with auto-trust for new devices
+- **Power toggle** — enable/disable the Bluetooth adapter
+- **Live updates** — device list refreshes automatically via BlueZ D-Bus signals
+- **Device categories** — icons for audio, phone, computer, input, and other device types
+- **Remove device** — unpair devices via the ⋮ menu
+- **Graceful fallback** — BT tab is hidden if no Bluetooth adapter is detected
+
+### General
+
+- **Tabbed interface** — switch between WiFi and Bluetooth tabs
+- **Context-aware toggle** — single switch controls WiFi or Bluetooth power based on active tab
 - **Daemon mode** — runs as a background process, toggled via CLI flag or D-Bus
 - **Layer-shell overlay** — floating panel with no window decorations, positioned via config
 - **Configurable position** — 9 anchor positions with per-edge margin offsets
@@ -54,6 +73,7 @@ paru -S wifi-manager-git
 The following must be installed and running on your system:
 
 - **NetworkManager** — system network service
+- **BlueZ** — Bluetooth protocol stack (optional — BT tab is hidden if unavailable)
 - **GTK4** — UI toolkit
 - **gtk4-layer-shell** — Wayland layer-shell integration
 
@@ -65,6 +85,7 @@ These are automatically installed as dependencies when using the AUR package.
 
 - Linux with Wayland (Hyprland, Sway, or any wlroots-based compositor)
 - [NetworkManager](https://networkmanager.dev/) as the system network service
+- [BlueZ](http://www.bluez.org/) for Bluetooth support (optional)
 - GTK4 and gtk4-layer-shell libraries
 - Rust toolchain (1.70+)
 
@@ -73,19 +94,19 @@ These are automatically installed as dependencies when using the AUR package.
 **Arch Linux:**
 
 ```sh
-sudo pacman -S gtk4 gtk4-layer-shell networkmanager rust
+sudo pacman -S gtk4 gtk4-layer-shell networkmanager bluez rust
 ```
 
 **Fedora:**
 
 ```sh
-sudo dnf install gtk4-devel gtk4-layer-shell-devel NetworkManager rust cargo
+sudo dnf install gtk4-devel gtk4-layer-shell-devel NetworkManager bluez rust cargo
 ```
 
 **Ubuntu/Debian:**
 
 ```sh
-sudo apt install libgtk-4-dev libgtk4-layer-shell-dev network-manager cargo
+sudo apt install libgtk-4-dev libgtk4-layer-shell-dev network-manager bluez cargo
 ```
 
 **Build:**
@@ -174,6 +195,8 @@ Your CSS overrides the default theme. Available selectors:
 | ------------------------ | ------------------------------ |
 | `.wifi-panel`            | Main window container          |
 | `.header`                | Top bar (toggle, status, scan) |
+| `.tab-bar`               | Tab container                  |
+| `.tab-button`            | Wi-Fi / Bluetooth tab button   |
 | `.network-list`          | Scrollable network list        |
 | `.network-row`           | Individual network entry       |
 | `.network-row.connected` | Connected network              |
@@ -181,6 +204,12 @@ Your CSS overrides the default theme. Available selectors:
 | `.ssid-label`            | Network name                   |
 | `.signal-icon`           | Signal strength indicator      |
 | `.security-icon`         | Lock/open icon                 |
+| `.device-list`           | Bluetooth device list          |
+| `.device-row`            | Individual Bluetooth device    |
+| `.device-row.connected`  | Connected Bluetooth device     |
+| `.device-name`           | Bluetooth device name          |
+| `.device-icon`           | Device category icon           |
+| `.trusted-icon`          | Trusted device indicator       |
 | `.password-entry`        | Password input field           |
 | `.connect-button`        | Connect action button          |
 | `.error-label`           | Error messages                 |
@@ -189,21 +218,33 @@ Your CSS overrides the default theme. Available selectors:
 
 ```
 src/
-├── main.rs                # Entry point, CLI parsing, GTK application setup
-├── app.rs                 # Application controller (UI <-> D-Bus bridge, live updates)
-├── config.rs              # Configuration loader (TOML)
-├── daemon.rs              # D-Bus daemon service (Toggle/Show/Hide)
+├── main.rs                  # Entry point, CLI parsing, GTK application setup
+├── config.rs                # Configuration loader (TOML)
+├── daemon.rs                # D-Bus daemon service (Toggle/Show/Hide)
+├── app/
+│   ├── mod.rs               # App state and setup (WiFi + Bluetooth)
+│   ├── scanning.rs          # WiFi scan logic and polling
+│   ├── connection.rs        # WiFi toggle, network click, password actions
+│   ├── live_updates.rs      # WiFi D-Bus signal subscriptions
+│   ├── bluetooth.rs         # Bluetooth controller (scan, connect, power)
+│   ├── bt_live_updates.rs   # Bluetooth D-Bus signal subscriptions
+│   └── shortcuts.rs         # Keyboard shortcuts and hot-reload
 ├── dbus/
-│   ├── proxies.rs         # D-Bus proxy trait definitions (zbus)
-│   ├── network_manager.rs # High-level WiFi operations (scan, connect, disconnect)
-│   ├── access_point.rs    # Data model (Network, SecurityType, Band)
-│   └── connection.rs      # NM connection settings builders
+│   ├── proxies.rs           # NetworkManager D-Bus proxy traits (zbus)
+│   ├── network_manager.rs   # High-level WiFi operations
+│   ├── access_point.rs      # WiFi data model (Network, SecurityType, Band)
+│   ├── connection.rs        # NM connection settings builders
+│   ├── bluez_proxies.rs     # BlueZ D-Bus proxy traits (Adapter1, Device1)
+│   ├── bluetooth_manager.rs # High-level Bluetooth operations
+│   └── bluetooth_device.rs  # Bluetooth data model (BluetoothDevice, DeviceCategory)
 └── ui/
-    ├── window.rs          # Layer-shell window setup and positioning
-    ├── header.rs          # Header bar (WiFi toggle, status, scan button)
-    ├── network_list.rs    # Scrollable network list
-    ├── network_row.rs     # Individual network row widget
-    └── password_dialog.rs # Inline password entry
+    ├── window.rs            # Layer-shell window setup, tab stack
+    ├── header.rs            # Header bar with tab switcher
+    ├── network_list.rs      # WiFi network list
+    ├── network_row.rs       # WiFi network row widget
+    ├── device_list.rs       # Bluetooth device list
+    ├── device_row.rs        # Bluetooth device row widget
+    └── password_dialog.rs   # Inline password entry
 ```
 
 ## Tech Stack
@@ -214,6 +255,8 @@ src/
 | UI framework        | GTK4                               |
 | Wayland integration | gtk4-layer-shell                   |
 | D-Bus client        | zbus (pure Rust, async-io backend) |
+| WiFi backend        | NetworkManager (D-Bus)             |
+| Bluetooth backend   | BlueZ (D-Bus)                      |
 | Configuration       | serde + toml                       |
 | CLI                 | clap                               |
 
