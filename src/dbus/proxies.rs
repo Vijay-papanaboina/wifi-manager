@@ -74,6 +74,9 @@ pub(crate) trait Device {
     /// Device state changed (new_state, old_state, reason)
     #[zbus(signal)]
     fn state_changed(&self, new_state: u32, old_state: u32, reason: u32) -> zbus::Result<()>;
+
+    /// Disconnect the device (stops hotspot or drops WiFi)
+    fn disconnect(&self) -> zbus::Result<()>;
 }
 
 /// Proxy for org.freedesktop.NetworkManager.Device.Wireless
@@ -157,6 +160,12 @@ pub(crate) trait ActiveConnection {
 pub(crate) trait Settings {
     /// List all saved connection profiles
     fn list_connections(&self) -> zbus::Result<Vec<OwnedObjectPath>>;
+
+    /// Add a new connection profile (persistent)
+    fn add_connection(
+        &self,
+        connection: HashMap<String, HashMap<String, zbus::zvariant::Value<'_>>>,
+    ) -> zbus::Result<OwnedObjectPath>;
 }
 
 /// Proxy for a single saved connection profile
@@ -172,4 +181,10 @@ pub(crate) trait SettingsConnection {
 
     /// Delete this connection profile
     fn delete(&self) -> zbus::Result<()>;
+
+    /// Update connection settings
+    fn update(
+        &self,
+        properties: HashMap<String, HashMap<String, zbus::zvariant::Value<'_>>>,
+    ) -> zbus::Result<()>;
 }

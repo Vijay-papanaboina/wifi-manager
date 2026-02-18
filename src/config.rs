@@ -54,6 +54,15 @@ pub struct Config {
 
     /// Whether to show the panel when the daemon starts (default: false)
     pub show_on_start: bool,
+
+    /// Hotspot SSID (default: "Linux-Hotspot")
+    pub hotspot_ssid: String,
+
+    /// Hotspot Password (default: random 8-char alphanumeric)
+    pub hotspot_password: String,
+
+    /// Hotspot Band ("bg" for 2.4GHz, "a" for 5GHz, default: "bg")
+    pub hotspot_band: String,
 }
 
 impl Default for Config {
@@ -73,8 +82,27 @@ impl Default for Config {
             lock_icon: "".to_string(),
             saved_icon: "".to_string(),
             show_on_start: false,
+            hotspot_ssid: "Linux-Hotspot".to_string(),
+            hotspot_password: generate_random_password(8),
+            hotspot_band: "bg".to_string(),
         }
     }
+}
+
+/// Helper: generate a random alphanumeric password of given length.
+fn generate_random_password(length: usize) -> String {
+    use rand::Rng;
+    let charset: &[u8] = b"abcdefghijklmnopqrstuvwxyz\
+                           ABCDEFGHIJKLMNOPQRSTUVWXYZ\
+                           0123456789";
+    let mut rng = rand::thread_rng();
+
+    (0..length)
+        .map(|_| {
+            let idx = rng.gen_range(0..charset.len());
+            charset[idx] as char
+        })
+        .collect()
 }
 
 impl Config {

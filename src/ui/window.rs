@@ -11,7 +11,7 @@ use gtk4::{
 };
 use gtk4_layer_shell::{Edge, KeyboardMode, Layer, LayerShell};
 
-use super::{device_list, header, network_list, password_dialog};
+use super::{device_list, header, hotspot_row, network_list, password_dialog};
 use crate::config::{Config, Position};
 
 /// All the UI handles needed by the app controller.
@@ -32,6 +32,12 @@ pub struct PanelWidgets {
     pub connect_button: gtk4::Button,
     pub cancel_button: gtk4::Button,
     pub error_label: gtk4::Label,
+    // Hotspot row
+    pub hotspot_toggle: gtk4::Switch,
+    pub hotspot_status: gtk4::Label,
+    pub hotspot_revealer: gtk4::Revealer,
+    pub hotspot_ssid: gtk4::Label,
+    pub hotspot_password: gtk4::Label,
     // Bluetooth page
     pub bt_list_box: ListBox,
     pub bt_scroll: gtk4::ScrolledWindow,
@@ -95,6 +101,9 @@ pub fn build_window(app: &Application) -> PanelWidgets {
     spinner.set_valign(gtk4::Align::Center);
     spinner.set_margin_top(20);
     spinner.set_margin_bottom(20);
+
+    let hotspot = hotspot_row::build_hotspot_row();
+    wifi_page.append(&hotspot.container);
 
     wifi_page.append(&spinner);
     wifi_page.append(&scrolled);
@@ -173,6 +182,12 @@ pub fn build_window(app: &Application) -> PanelWidgets {
         connect_button: connect_btn,
         cancel_button: cancel_btn,
         error_label,
+        // Hotspot
+        hotspot_toggle: hotspot.toggle,
+        hotspot_status: hotspot.status_label,
+        hotspot_revealer: hotspot.detail_revealer,
+        hotspot_ssid: hotspot.ssid_value,
+        hotspot_password: hotspot.password_value,
         bt_list_box,
         bt_scroll: bt_scrolled,
         bt_spinner,
@@ -193,7 +208,18 @@ fn load_css() {
         &provider,
         gtk4::STYLE_PROVIDER_PRIORITY_APPLICATION,
     );
-    log::info!("Default CSS theme loaded");
+
+    // Load hotspot theme (modular)
+    let hotspot_css = include_str!("../../resources/hotspot.css");
+    let hotspot_provider = CssProvider::new();
+    hotspot_provider.load_from_string(hotspot_css);
+    gtk4::style_context_add_provider_for_display(
+        &display,
+        &hotspot_provider,
+        gtk4::STYLE_PROVIDER_PRIORITY_APPLICATION,
+    );
+
+    log::info!("Default CSS themes loaded");
 
     // Load optional user theme override
     if let Some(config_dir) = dirs_config_path() {

@@ -1,0 +1,58 @@
+/* ── Hotspot Row ───────────────────────────────────────────────────────────── */
+
+.hotspot-row {
+  padding: 12px 20px;
+  margin: 2px 8px 8px; /* Extra bottom margin to separate from network list */
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  transition: all 200ms ease;
+}
+
+.hotspot-row:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.hotspot-icon {
+  font-size: 18px;
+  color: #ffffff;
+}
+
+.hotspot-title {
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.hotspot-status {
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.hotspot-toggle {
+  margin-left: 12px;
+}
+
+/* ── Hotspot Detail (Active State) ─────────────────────────────────────────── */
+
+.hotspot-detail {
+  margin-top: 8px;
+}
+
+.hotspot-detail-label {
+  color: rgba(255, 255, 255, 0.4);
+  font-size: 11px;
+  font-weight: 500;
+  min-width: 40px;
+}
+
+.hotspot-detail-value {
+  color: #78aeed; /* Accent color */
+  font-size: 12px;
+  font-weight: 600;
+  font-family: monospace;
+  background: rgba(0, 0, 0, 0.2);
+  padding: 2px 6px;
+  border-radius: 4px;
+}

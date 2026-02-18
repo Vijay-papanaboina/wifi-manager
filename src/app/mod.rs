@@ -9,6 +9,7 @@
 mod bluetooth;
 mod bt_live_updates;
 mod connection;
+mod hotspot;
 mod live_updates;
 mod scanning;
 mod shortcuts;
@@ -21,6 +22,7 @@ use gtk4::prelude::*;
 use crate::dbus::access_point::Network;
 use crate::dbus::bluetooth_device::BluetoothDevice;
 use crate::dbus::bluetooth_manager::BluetoothManager;
+use crate::dbus::hotspot_manager::HotspotManager;
 use crate::dbus::network_manager::WifiManager;
 use crate::ui::network_list;
 use crate::ui::window::PanelWidgets;
@@ -36,6 +38,8 @@ struct AppState {
     bluetooth: Option<BluetoothManager>,
     /// Bluetooth device list — refreshed on BT scan.
     bt_devices: Vec<BluetoothDevice>,
+    /// Hotspot manager.
+    hotspot: HotspotManager,
 }
 
 /// Set up all event handlers, kick off the initial scan, start live updates,
@@ -46,12 +50,15 @@ pub fn setup(
     scan_requested: std::sync::Arc<std::sync::atomic::AtomicBool>,
     panel_state: crate::daemon::PanelState,
 ) {
+    let hotspot = HotspotManager::new(wifi.connection().clone(), wifi.device_path());
+
     let state = Rc::new(RefCell::new(AppState {
         wifi,
         networks: Vec::new(),
         selected_index: None,
         bluetooth: None,
         bt_devices: Vec::new(),
+        hotspot,
     }));
 
     scanning::setup_scan_button(widgets, Rc::clone(&state));
@@ -62,6 +69,7 @@ pub fn setup(
     scanning::setup_scan_on_show(widgets, Rc::clone(&state), scan_requested);
     bluetooth::setup_bluetooth(widgets, Rc::clone(&state));
     bt_live_updates::setup_bt_live_updates(widgets, Rc::clone(&state));
+    hotspot::setup_hotspot(widgets, Rc::clone(&state));
     setup_bt_scan_button(widgets, Rc::clone(&state));
     setup_wifi_tab_sync(widgets, Rc::clone(&state));
     let reload_requested = panel_state.reload_requested.clone();
