@@ -10,7 +10,7 @@ use super::proxies::*;
 
 /// Fixed UUID for our hotspot connection profile.
 /// This lets us find and reuse it across app restarts.
-const HOTSPOT_UUID: &str = "4a370f8b-a666-4c84-b9d8-d97710ffdaa8";
+const HOTSPOT_UUID: &str = "5b481f9c-7d77-4d95-8e1c-e08821ffeba9";
 
 /// Manages the WiFi hotspot via NetworkManager D-Bus.
 #[derive(Clone)]
@@ -29,21 +29,18 @@ impl HotspotManager {
         }
     }
 
-    /// Start a WiFi hotspot with the given SSID, password, band, and channel.
+    /// Start a WiFi hotspot with the given SSID and password.
     ///
-    /// Band should be `"bg"` (2.4 GHz) or `"a"` (5 GHz).
-    /// Channel must match the current WiFi connection for concurrent mode
-    /// on single-channel hardware (e.g. `#channels <= 1` in `iw list`).
     /// Creates the connection profile on first use, reuses it afterwards.
+    /// NetworkManager auto-selects the best band and channel.
     pub async fn start_hotspot(
         &self,
         ssid: &str,
-        password: &str,
-        band: &str,
-        channel: Option<u32>,
+        password: Option<&str>,
     ) -> zbus::Result<OwnedObjectPath> {
-        // Always update profile to match current config + channel
-        let conn_path = self.ensure_profile(ssid, password, band, channel).await?;
+        log::warn!("DEBUG: start_hotspot called for SSID: {}", ssid);
+        // Always update profile to match current config
+        let conn_path = self.ensure_profile(ssid, password).await?;
 
         // Activate it on our WiFi device
         let nm = NetworkManagerProxy::new(&self.connection).await?;
@@ -55,7 +52,7 @@ impl HotspotManager {
             .map_err(|e| zbus::Error::Failure(format!("Invalid path: {e}")))?;
 
         let active = nm.activate_connection(&conn, &device, &none).await?;
-        log::info!("Hotspot started: SSID={ssid}, band={band}, channel={channel:?}");
+        log::info!("Hotspot started: SSID={ssid}");
         Ok(active)
     }
 
@@ -104,26 +101,27 @@ impl HotspotManager {
     async fn ensure_profile(
         &self,
         ssid: &str,
-        password: &str,
-        band: &str,
-        channel: Option<u32>,
+        password: Option<&str>,
     ) -> zbus::Result<String> {
-        let settings_dict = build_hotspot_settings(ssid, password, band, channel);
+        let settings_dict = build_hotspot_settings(ssid, password);
         let settings = SettingsProxy::new(&self.connection).await?;
 
+        // If it exists, delete it first to ensure no leftover WPA settings
         if let Some(path) = self.find_hotspot_profile().await {
-            let conn = SettingsConnectionProxy::builder(&self.connection)
+            log::info!("Deleting existing hotspot profile for a clean start: {}", path);
+            if let Ok(conn) = SettingsConnectionProxy::builder(&self.connection)
                 .path(path.clone())?
                 .build()
-                .await?;
-            conn.update(settings_dict).await?;
-            log::info!("Hotspot profile updated: {}", path);
-            Ok(path)
-        } else {
-            let path = settings.add_connection(settings_dict).await?;
-            log::info!("Hotspot profile created: {}", path);
-            Ok(path.to_string())
+                .await
+            {
+                let _ = conn.delete().await;
+            }
         }
+
+        let path = settings.add_connection(settings_dict).await?;
+        let mode_str = if password.is_some() && !password.unwrap().is_empty() { "SECURED" } else { "OPEN" };
+        log::info!("Hotspot profile created ({}): {}", mode_str, path);
+        Ok(path.to_string())
     }
 
     /// Find our existing hotspot profile by UUID.
@@ -162,11 +160,11 @@ impl HotspotManager {
 }
 
 /// Build the NM connection settings dict for a WiFi Access Point.
+/// Minimal settings — let NetworkManager auto-select band and channel.
+/// Open network (no password) for now.
 fn build_hotspot_settings(
     ssid: &str,
-    password: &str,
-    band: &str,
-    channel: Option<u32>,
+    password: Option<&str>,
 ) -> HashMap<String, HashMap<String, Value<'static>>> {
     let mut settings: HashMap<String, HashMap<String, Value>> = HashMap::new();
 
@@ -182,17 +180,23 @@ fn build_hotspot_settings(
     let mut wifi = HashMap::new();
     wifi.insert("mode".to_string(), Value::from("ap"));
     wifi.insert("ssid".to_string(), Value::from(ssid.as_bytes().to_vec()));
-    wifi.insert("band".to_string(), Value::from(band.to_string()));
-    if let Some(ch) = channel {
-        wifi.insert("channel".to_string(), Value::from(ch));
+    
+    // If password provided, add security
+    if let Some(pass) = password {
+        if !pass.is_empty() {
+            wifi.insert("security".to_string(), Value::from("802-11-wireless-security"));
+            
+            let mut security = HashMap::new();
+            security.insert("key-mgmt".to_string(), Value::from("wpa-psk"));
+            security.insert("psk".to_string(), Value::from(pass.to_string()));
+            security.insert("proto".to_string(), Value::from(vec!["rsn"]));
+            security.insert("pairwise".to_string(), Value::from(vec!["ccmp"]));
+            security.insert("group".to_string(), Value::from(vec!["ccmp"]));
+            settings.insert("802-11-wireless-security".to_string(), security);
+        }
     }
+    
     settings.insert("802-11-wireless".to_string(), wifi);
-
-    // 802-11-wireless-security
-    let mut sec = HashMap::new();
-    sec.insert("key-mgmt".to_string(), Value::from("wpa-psk"));
-    sec.insert("psk".to_string(), Value::from(password.to_string()));
-    settings.insert("802-11-wireless-security".to_string(), sec);
 
     // ipv4 — shared mode enables NAT + DHCP for clients
     let mut ipv4 = HashMap::new();

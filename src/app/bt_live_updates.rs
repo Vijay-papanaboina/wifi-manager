@@ -1,5 +1,3 @@
-//! Bluetooth live updates — D-Bus signal subscriptions for real-time device changes.
-//!
 //! Mirrors `live_updates.rs` for WiFi, using BlueZ ObjectManager signals.
 
 use std::cell::RefCell;

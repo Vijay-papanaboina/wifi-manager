@@ -8,9 +8,8 @@ use gtk4::{
 
 /// Build the inline password entry section.
 ///
-/// Returns `(revealer, password_entry, connect_button, cancel_button, error_label)`.
-/// The revealer wraps the section — show/hide by calling `revealer.set_reveal_child()`.
-pub fn build_password_section() -> (Revealer, Entry, Button, Button, Label) {
+/// Returns `(revealer, entry, connect_btn, cancel_btn, error_label, title_label)`.
+pub fn build_password_section() -> (Revealer, Entry, Button, Button, Label, Label) {
     let revealer = Revealer::new();
     revealer.add_css_class("password-revealer");
     revealer.set_transition_type(RevealerTransitionType::SlideDown);
@@ -81,5 +80,5 @@ pub fn build_password_section() -> (Revealer, Entry, Button, Button, Label) {
     vbox.append(&button_box);
     revealer.set_child(Some(&vbox));
 
-    (revealer, entry, connect_button, cancel_button, error_label)
+    (revealer, entry, connect_button, cancel_button, error_label, title)
 }

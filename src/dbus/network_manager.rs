@@ -334,14 +334,6 @@ impl WifiManager {
         Ok(ssid_map)
     }
 
-    /// Get the frequency (in MHz) of the currently active AP, if connected.
-    pub async fn get_active_frequency(&self) -> Option<u32> {
-        let path = self.get_active_ap_path().await.ok()?;
-        let ap = AccessPointProxy::builder(&self.connection)
-            .path(path).ok()?
-            .build().await.ok()?;
-        ap.frequency().await.ok()
-    }
 
     /// Get a reference to the D-Bus connection (for use in other modules).
     pub fn connection(&self) -> &zbus::Connection {

@@ -139,8 +139,10 @@ pub(super) fn setup_password_actions(widgets: &PanelWidgets, state: Rc<RefCell<A
 
     // Cancel button — hide the password section
     {
+        let state = Rc::clone(&state);
         let revealer = revealer.clone();
         widgets.cancel_button.connect_clicked(move |_| {
+            state.borrow_mut().is_configuring_hotspot = false;
             revealer.set_reveal_child(false);
         });
     }
@@ -156,44 +158,128 @@ pub(super) fn setup_password_actions(widgets: &PanelWidgets, state: Rc<RefCell<A
 
         widgets.connect_button.connect_clicked(move |btn| {
             let password = entry.text().to_string();
-            if password.is_empty() {
-                error_label.set_text("Password cannot be empty");
-                error_label.set_visible(true);
-                return;
+            let state_c = Rc::clone(&state);
+            let mode = state_c.borrow().hotspot_config_mode;
+
+            // ── Validation ──
+            match mode {
+                Some(crate::app::HotspotConfigMode::Name) => {
+                    if password.is_empty() {
+                        error_label.set_text("Hotspot name cannot be empty");
+                        error_label.set_visible(true);
+                        return;
+                    }
+                }
+                Some(crate::app::HotspotConfigMode::Password) => {
+                    // WPA-PSK requires 8-63 characters, or empty for OPEN
+                    if !password.is_empty() && password.len() < 8 {
+                        error_label.set_text("Password must be at least 8 characters");
+                        error_label.set_visible(true);
+                        return;
+                    }
+                }
+                None => {}
             }
 
             btn.set_sensitive(false);
             let state = Rc::clone(&state);
             let revealer = revealer.clone();
+            let entry = entry.clone();
             let error_label = error_label.clone();
             let list_box = list_box.clone();
             let status = status.clone();
             let btn = btn.clone();
 
             glib::spawn_future_local(async move {
-                let (network, wifi) = {
-                    let st = state.borrow();
-                    let net = st.selected_index.and_then(|i| st.networks.get(i).cloned());
-                    (net, st.wifi.clone())
-                };
+                let is_config = state.borrow().is_configuring_hotspot;
 
-                let Some(network) = network else {
-                    btn.set_sensitive(true);
-                    return;
-                };
+                if is_config {
+                    // ── Handle Hotspot Settings Save ──
+                    let mut config = crate::config::Config::load();
+                    let mode = state.borrow().hotspot_config_mode;
 
-                status.set_text(&format!("Connecting to {}...", network.ssid));
-
-                match wifi.connect_to_network(&network, Some(&password)).await {
-                    Ok(_) => {
-                        revealer.set_reveal_child(false);
-                        glib::timeout_future(std::time::Duration::from_millis(2000)).await;
-                        refresh_list(&state, &list_box, &status).await;
+                    match mode {
+                        Some(crate::app::HotspotConfigMode::Name) => {
+                            config.hotspot_ssid = password.clone();
+                        }
+                        Some(crate::app::HotspotConfigMode::Password) => {
+                            config.hotspot_password = password.clone();
+                        }
+                        None => {
+                            log::warn!("Hotspot config saved with no mode set");
+                        }
                     }
-                    Err(e) => {
-                        log::error!("Connect with password failed: {e}");
-                        error_label.set_text("Connection failed — check password");
+
+                    if let Err(e) = config.save() {
+                        log::error!("Failed to save config: {e}");
+                        error_label.set_text("Failed to save settings");
                         error_label.set_visible(true);
+                        btn.set_sensitive(true);
+                        return;
+                    }
+
+                    status.set_text("Hotspot settings saved");
+                    
+                    // ── Sync UI labels immediately ──
+                    let ssid_label = state.borrow().hotspot_ssid_label.clone();
+                    if let Some(l) = ssid_label {
+                        l.set_text(&config.hotspot_ssid);
+                    }
+
+                    let hotspot = state.borrow().hotspot.clone();
+                    if hotspot.is_hotspot_active().await {
+                        status.set_text("Restarting hotspot...");
+                        let ssid = config.hotspot_ssid.clone();
+                        let pass = if config.hotspot_password.is_empty() { None } else { Some(config.hotspot_password.as_str()) };
+                        
+                        // We use a small delay or just wait for stop to finish
+                        let _ = hotspot.stop_hotspot().await;
+                        glib::timeout_future(std::time::Duration::from_millis(500)).await;
+                        let _ = hotspot.start_hotspot(&ssid, pass).await;
+                    }
+
+                    {
+                        let mut st = state.borrow_mut();
+                        st.is_configuring_hotspot = false;
+                        st.hotspot_config_mode = None;
+                    }
+                    revealer.set_reveal_child(false);
+                    
+                    // Reset dialog UI for next time
+                    btn.set_label("Connect");
+                    entry.set_placeholder_text(Some("Enter password"));
+                } else {
+                    // ── Handle WiFi Connection ──
+                    if password.is_empty() {
+                        error_label.set_text("Password cannot be empty");
+                        error_label.set_visible(true);
+                        btn.set_sensitive(true);
+                        return;
+                    }
+                    let (network, wifi) = {
+                        let st = state.borrow();
+                        let net = st.selected_index.and_then(|i| st.networks.get(i).cloned());
+                        (net, st.wifi.clone())
+                    };
+
+                    let Some(network) = network else {
+                        btn.set_sensitive(true);
+                        return;
+                    };
+
+                    status.set_text(&format!("Connecting to {}...", network.ssid));
+
+                    match wifi.connect_to_network(&network, Some(&password)).await {
+                        Ok(_) => {
+                            revealer.set_reveal_child(false);
+                            glib::timeout_future(std::time::Duration::from_millis(2000)).await;
+                            refresh_list(&state, &list_box, &status).await;
+                        }
+                        Err(e) => {
+                            log::error!("Connect with password failed: {e}");
+                            error_label.set_text("Connection failed — check password");
+                            error_label.set_visible(true);
+                        }
                     }
                 }
                 btn.set_sensitive(true);

@@ -32,12 +32,14 @@ pub struct PanelWidgets {
     pub connect_button: gtk4::Button,
     pub cancel_button: gtk4::Button,
     pub error_label: gtk4::Label,
+    pub password_title: gtk4::Label,
     // Hotspot row
     pub hotspot_toggle: gtk4::Switch,
     pub hotspot_status: gtk4::Label,
     pub hotspot_revealer: gtk4::Revealer,
     pub hotspot_ssid: gtk4::Label,
-    pub hotspot_password: gtk4::Label,
+    pub hotspot_container: gtk4::Box,
+    pub hotspot_menu_btn: gtk4::MenuButton,
     // Bluetooth page
     pub bt_list_box: ListBox,
     pub bt_scroll: gtk4::ScrolledWindow,
@@ -109,7 +111,7 @@ pub fn build_window(app: &Application) -> PanelWidgets {
     wifi_page.append(&scrolled);
     scrolled.set_visible(false);
 
-    let (revealer, entry, connect_btn, cancel_btn, error_label) =
+    let (revealer, entry, connect_btn, cancel_btn, error_label, password_title) =
         password_dialog::build_password_section();
     wifi_page.append(&revealer);
 
@@ -182,12 +184,14 @@ pub fn build_window(app: &Application) -> PanelWidgets {
         connect_button: connect_btn,
         cancel_button: cancel_btn,
         error_label,
+        password_title,
         // Hotspot
         hotspot_toggle: hotspot.toggle,
         hotspot_status: hotspot.status_label,
         hotspot_revealer: hotspot.detail_revealer,
         hotspot_ssid: hotspot.ssid_value,
-        hotspot_password: hotspot.password_value,
+        hotspot_container: hotspot.container,
+        hotspot_menu_btn: hotspot.menu_btn,
         bt_list_box,
         bt_scroll: bt_scrolled,
         bt_spinner,

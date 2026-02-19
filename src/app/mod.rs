@@ -27,19 +27,31 @@ use crate::dbus::network_manager::WifiManager;
 use crate::ui::network_list;
 use crate::ui::window::PanelWidgets;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum HotspotConfigMode {
+    Name,
+    Password,
+}
+
 /// Shared application state accessible from GTK callbacks.
-struct AppState {
-    wifi: WifiManager,
+pub(crate) struct AppState {
+    pub wifi: WifiManager,
     /// The network list — refreshed on scan.
-    networks: Vec<Network>,
+    pub networks: Vec<Network>,
     /// Index of the currently selected network (for password entry).
-    selected_index: Option<usize>,
+    pub selected_index: Option<usize>,
     /// Bluetooth manager (None if no adapter found).
-    bluetooth: Option<BluetoothManager>,
+    pub bluetooth: Option<BluetoothManager>,
     /// Bluetooth device list — refreshed on BT scan.
-    bt_devices: Vec<BluetoothDevice>,
+    pub bt_devices: Vec<BluetoothDevice>,
     /// Hotspot manager.
-    hotspot: HotspotManager,
+    pub hotspot: HotspotManager,
+    /// Whether the password dialog is currently configuring the hotspot.
+    pub is_configuring_hotspot: bool,
+    /// The current mode of hotspot configuration.
+    pub hotspot_config_mode: Option<HotspotConfigMode>,
+    /// Reference to the hotspot SSID label for live updates.
+    pub hotspot_ssid_label: Option<gtk4::Label>,
 }
 
 /// Set up all event handlers, kick off the initial scan, start live updates,
@@ -59,6 +71,9 @@ pub fn setup(
         bluetooth: None,
         bt_devices: Vec::new(),
         hotspot,
+        is_configuring_hotspot: false,
+        hotspot_config_mode: None,
+        hotspot_ssid_label: Some(widgets.hotspot_ssid.clone()),
     }));
 
     scanning::setup_scan_button(widgets, Rc::clone(&state));

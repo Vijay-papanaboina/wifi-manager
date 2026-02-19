@@ -1,10 +1,10 @@
 //! Application configuration loaded from `~/.config/wifi-manager/config.toml`.
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
 /// Window position on screen.
-#[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
 pub enum Position {
     Center,
@@ -25,7 +25,7 @@ impl Default for Position {
 }
 
 /// Application configuration.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct Config {
     /// Window position (default: "center")
@@ -60,9 +60,6 @@ pub struct Config {
 
     /// Hotspot Password (default: random 8-char alphanumeric)
     pub hotspot_password: String,
-
-    /// Hotspot Band ("bg" for 2.4GHz, "a" for 5GHz, default: "bg")
-    pub hotspot_band: String,
 }
 
 impl Default for Config {
@@ -83,8 +80,7 @@ impl Default for Config {
             saved_icon: "".to_string(),
             show_on_start: false,
             hotspot_ssid: "Linux-Hotspot".to_string(),
-            hotspot_password: generate_random_password(8),
-            hotspot_band: "bg".to_string(),
+            hotspot_password: "".to_string(),
         }
     }
 }
@@ -133,6 +129,27 @@ impl Config {
                 log::warn!("Failed to read config file: {e}, using defaults");
                 Self::default()
             }
+        }
+    }
+
+    /// Save config to `~/.config/wifi-manager/config.toml`.
+    pub fn save(&self) -> std::io::Result<()> {
+        let Some(path) = config_file_path() else {
+            return Err(std::io::Error::new(std::io::ErrorKind::NotFound, "Config path not found"));
+        };
+
+        // Ensure directory exists
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+
+        match toml::to_string_pretty(self) {
+            Ok(contents) => {
+                std::fs::write(&path, contents)?;
+                log::info!("Config saved to {:?}", path);
+                Ok(())
+            }
+            Err(e) => Err(std::io::Error::new(std::io::ErrorKind::Other, e.to_string())),
         }
     }
 }

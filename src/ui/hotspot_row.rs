@@ -13,7 +13,7 @@ pub struct HotspotRowWidgets {
     pub status_label: Label,
     pub detail_revealer: Revealer,
     pub ssid_value: Label,
-    pub password_value: Label,
+    pub menu_btn: gtk4::MenuButton,
 }
 
 /// Build the hotspot quick-action row.
@@ -54,6 +54,28 @@ pub fn build_hotspot_row() -> HotspotRowWidgets {
 
     main_row.append(&icon);
     main_row.append(&info);
+
+    // ── Menu button ──────────────────────────────────────────
+    use gtk4::{gio, MenuButton, PopoverMenu};
+
+    let menu = gio::Menu::new();
+    menu.append(Some("Change Name"), Some("hotspot.change_ssid"));
+    menu.append(Some("Change Password"), Some("hotspot.change_password"));
+
+    let popover = PopoverMenu::from_model(Some(&menu));
+    popover.add_css_class("network-popover");
+
+    let menu_btn = MenuButton::new();
+    menu_btn.set_icon_name("view-more-symbolic");
+    menu_btn.add_css_class("network-menu-btn");
+    menu_btn.add_css_class("flat");
+    menu_btn.set_has_frame(false);
+    menu_btn.set_direction(gtk4::ArrowType::None);
+    menu_btn.set_popover(Some(&popover));
+    menu_btn.set_halign(gtk4::Align::End);
+    menu_btn.set_valign(gtk4::Align::Center);
+
+    main_row.append(&menu_btn);
     main_row.append(&toggle);
 
     // ── Detail section (revealed when active) ────────────────
@@ -69,10 +91,9 @@ pub fn build_hotspot_row() -> HotspotRowWidgets {
     detail_box.set_margin_bottom(8);
 
     let ssid_row = build_detail_line("SSID");
-    let password_row = build_detail_line("Pass");
+    // Password line removed as requested
 
     detail_box.append(&ssid_row.0);
-    detail_box.append(&password_row.0);
 
     detail_revealer.set_child(Some(&detail_box));
 
@@ -85,7 +106,7 @@ pub fn build_hotspot_row() -> HotspotRowWidgets {
         status_label,
         detail_revealer,
         ssid_value: ssid_row.1,
-        password_value: password_row.1,
+        menu_btn,
     }
 }
 
