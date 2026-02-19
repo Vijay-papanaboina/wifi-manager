@@ -3,8 +3,14 @@
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
-    rust-overlay.url = "github:oxalica/rust-overlay";
-    crane.url = "github:ipetkov/crane";
+    rust-overlay = {
+      url = "github:oxalica/rust-overlay";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+    crane = {
+      url = "github:ipetkov/crane";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
     utils.url = "github:numtide/flake-utils";
   };
 
@@ -39,7 +45,12 @@
         ];
 
         commonArgs = {
-          src = pkgs.lib.cleanSource ./.;
+          src = pkgs.lib.cleanSourceWith {
+            src = ./.;
+            filter = path: type:
+              (pkgs.lib.hasInfix "/resources/" path) ||
+              (craneLib.filterCargoSources path type);
+          };
           strictDeps = true;
 
           inherit buildInputs nativeBuildInputs;
@@ -53,11 +64,8 @@
         packages.default = wifi-manager;
 
         devShells.default = craneLib.devShell {
-          packages = buildInputs ++ nativeBuildInputs ++ (with pkgs; [
-            rustToolchain
-            clippy
-            rustfmt
-          ]);
+          inputsFrom = [ wifi-manager ];
+          packages = [ rustToolchain ];
 
           shellHook = ''
             export RUST_SRC_PATH="${rustToolchain}/lib/rustlib/src/rust/library"

@@ -4,6 +4,7 @@ Cargo.lock
 
 # Nix
 result
+result-*
 
 # AUR files (belong in aur-wifi-manager-git/ only)
 .SRCINFO
