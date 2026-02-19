@@ -2,6 +2,9 @@
 /target
 Cargo.lock
 
+# Nix
+result
+
 # AUR files (belong in aur-wifi-manager-git/ only)
 .SRCINFO
 *.pkg.tar.zst
