@@ -9,6 +9,22 @@ A lightweight, native WiFi and Bluetooth manager for Wayland compositors. Built 
   <img src="examples/images/bluetooth1.webp" width="100%" />
 </p>
 
+## Table of Contents
+
+- [Why](#why)
+- [Features](#features)
+- [Installation](#installation)
+  - [Arch Linux (AUR)](#arch-linux-aur)
+  - [Nix (flakes)](#nix)
+  - [Build from Source (Traditional)](#build-from-source-traditional)
+- [Usage](#usage)
+  - [Hyprland Integration](#hyprland-integration)
+- [Configuration](#configuration)
+- [Theming](#theming)
+- [Architecture](#architecture)
+- [Tech Stack](#tech-stack)
+- [License](#license)
+
 ## Why
 
 There is no widely adopted standalone GUI WiFi manager designed specifically for Wayland compositors:
@@ -83,6 +99,39 @@ The following must be installed and running on your system:
 - **gtk4-layer-shell** — Wayland layer-shell integration
 
 These are automatically installed as dependencies when using the AUR package.
+
+### Nix
+
+If you have Nix installed with flakes enabled, you can interact with `wifi-manager` without manually installing any system dependencies.
+
+**Run immediately without installing:**
+
+```bash
+nix run github:Vijay-papanaboina/wifi-manager
+```
+
+**Install permanently:**
+
+```bash
+nix profile install github:Vijay-papanaboina/wifi-manager
+```
+
+**Clone and Build:**
+
+```sh
+git clone https://github.com/Vijay-papanaboina/wifi-manager.git
+cd wifi-manager
+nix build
+./result/bin/wifi-manager
+```
+
+**Development Shell:**
+
+```sh
+nix develop
+# This opens a shell with all required libs (GTK4, etc.) and Rust tools.
+cargo run
+```
 
 ### Other Distributions (Build from Source)
 
