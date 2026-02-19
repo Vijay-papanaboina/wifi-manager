@@ -7,10 +7,7 @@
       url = "github:oxalica/rust-overlay";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    crane = {
-      url = "github:ipetkov/crane";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
+    crane.url = "github:ipetkov/crane";
     utils.url = "github:numtide/flake-utils";
   };
 
@@ -56,8 +53,10 @@
           inherit buildInputs nativeBuildInputs;
         };
 
+        cargoArtifacts = craneLib.buildDepsOnly commonArgs;
+
         wifi-manager = craneLib.buildPackage (commonArgs // {
-          cargoArtifacts = craneLib.buildDepsOnly commonArgs;
+          inherit cargoArtifacts;
         });
       in
       {
@@ -65,14 +64,10 @@
 
         devShells.default = craneLib.devShell {
           inputsFrom = [ wifi-manager ];
-          packages = [ rustToolchain ];
-
-          shellHook = ''
-            export RUST_SRC_PATH="${rustToolchain}/lib/rustlib/src/rust/library"
-          '';
+          packages = with pkgs; [
+            # Add any additional dev tools here
+          ];
         };
-
-        formatter = pkgs.nixpkgs-fmt;
       }
     );
 }
