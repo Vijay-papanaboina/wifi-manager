@@ -52,34 +52,55 @@ impl Dispatch<ZwlrGammaControlManagerV1, ()> for AppState {
 
 impl Dispatch<ZwlrGammaControlV1, ()> for AppState {
     fn event(state: &mut Self, proxy: &ZwlrGammaControlV1, event: <ZwlrGammaControlV1 as Proxy>::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
-        if let zwlr_gamma_control_v1::Event::GammaSize { size } = event {
-            state.gamma_sizes.insert(proxy.clone(), size);
+        match event {
+            zwlr_gamma_control_v1::Event::GammaSize { size } => {
+                state.gamma_sizes.insert(proxy.clone(), size);
+            }
+            zwlr_gamma_control_v1::Event::Failed => {
+                log::warn!("wl_output rejected gamma control; removing from state.");
+                state.gamma_sizes.remove(proxy);
+            }
+            _ => {}
         }
     }
 }
 
 pub struct NightModeManager {
     sender: mpsc::Sender<f64>,
+    current_temp: std::sync::Arc<std::sync::atomic::AtomicU32>,
 }
 
 impl NightModeManager {
     pub fn new() -> Result<Self, Box<dyn std::error::Error>> {
         let (tx, rx) = mpsc::channel();
+        let (init_tx, init_rx) = mpsc::channel();
         
+        // Initial temperature
+        let initial_temp = 6500.0;
+        let current_temp = std::sync::Arc::new(std::sync::atomic::AtomicU32::new(initial_temp as u32));
+        let thread_temp = std::sync::Arc::clone(&current_temp);
+
         thread::spawn(move || {
-            if let Err(e) = run_wayland_thread(rx) {
+            if let Err(e) = run_wayland_thread(rx, init_tx, initial_temp, thread_temp) {
                 log::error!("Night mode wayland thread exited: {}", e);
             }
         });
 
-        // Initialize with default 6500K
-        let _ = tx.send(6500.0);
-
-        Ok(NightModeManager { sender: tx })
+        // Block on initialization status from Wayland thread (e.g. up to 1 second)
+        match init_rx.recv_timeout(std::time::Duration::from_millis(1000)) {
+            Ok(Ok(())) => Ok(NightModeManager { sender: tx, current_temp }),
+            Ok(Err(e)) => Err(e),
+            Err(e) => Err(format!("Night mode wayland thread initialization failed: {}", e).into()),
+        }
     }
 
-    pub fn set_temperature(&self, temp: f64) {
-        let _ = self.sender.send(temp);
+    pub fn set_temperature(&self, temp: f64) -> Result<(), mpsc::SendError<f64>> {
+        self.current_temp.store(temp as u32, std::sync::atomic::Ordering::Relaxed);
+        self.sender.send(temp)
+    }
+
+    pub fn get_temperature_kelvin(&self) -> f64 {
+        self.current_temp.load(std::sync::atomic::Ordering::Relaxed) as f64
     }
 }
 
@@ -117,8 +138,20 @@ fn color_temp_to_rgb(temp: f64) -> (f64, f64, f64) {
     (red / 255.0, green / 255.0, blue / 255.0)
 }
 
-fn run_wayland_thread(rx: mpsc::Receiver<f64>) -> Result<(), Box<dyn std::error::Error>> {
-    let conn = Connection::connect_to_env()?;
+fn run_wayland_thread(
+    rx: mpsc::Receiver<f64>,
+    init_tx: mpsc::Sender<Result<(), Box<dyn std::error::Error + Send + Sync>>>,
+    initial_temp: f64,
+    _current_temp: std::sync::Arc<std::sync::atomic::AtomicU32>
+) -> Result<(), Box<dyn std::error::Error>> {
+    let conn = match Connection::connect_to_env() {
+        Ok(c) => c,
+        Err(e) => {
+            let _ = init_tx.send(Err(e.into()));
+            return Err("Failed to connect to wayland".into());
+        }
+    };
+    
     let display = conn.display();
     let mut event_queue = conn.new_event_queue();
     let qh = event_queue.handle();
@@ -127,9 +160,18 @@ fn run_wayland_thread(rx: mpsc::Receiver<f64>) -> Result<(), Box<dyn std::error:
     let mut state = AppState::default();
 
     // Roundtrip to get globals
-    event_queue.roundtrip(&mut state)?;
+    if let Err(e) = event_queue.roundtrip(&mut state) {
+        let _ = init_tx.send(Err(e.into()));
+        return Err("Failed roundtrip".into());
+    }
 
-    let manager = state.gamma_manager.as_ref().ok_or("zwlr_gamma_control_manager_v1 not available")?;
+    let manager = match state.gamma_manager.as_ref() {
+        Some(m) => m,
+        None => {
+            let _ = init_tx.send(Err("zwlr_gamma_control_manager_v1 not available".into()));
+            return Err("zwlr_gamma_control_manager_v1 not available".into());
+        }
+    };
 
     for output in &state.outputs {
         let control = manager.get_gamma_control(output, &qh, ());
@@ -137,7 +179,17 @@ fn run_wayland_thread(rx: mpsc::Receiver<f64>) -> Result<(), Box<dyn std::error:
     }
 
     // Roundtrip to get gamma sizes
-    event_queue.roundtrip(&mut state)?;
+    if let Err(e) = event_queue.roundtrip(&mut state) {
+        let _ = init_tx.send(Err(e.into()));
+        return Err("Failed roundtrip for sizes".into());
+    }
+
+    // Inform main thread that initialization succeeded.
+    let _ = init_tx.send(Ok(()));
+    
+    // Apply initial temperature
+    let _ = rx.recv_timeout(std::time::Duration::from_millis(50));
+    let (_r_mult, _g_mult, _b_mult) = color_temp_to_rgb(initial_temp);
 
     // We store file ownership so FDs aren't closed prematurely if wayland requires them open.
     // However, set_gamma sends over FD and usually the compositor dup()s or mmap()s it, 
@@ -165,7 +217,11 @@ fn run_wayland_thread(rx: mpsc::Receiver<f64>) -> Result<(), Box<dyn std::error:
                     let mut mmap = unsafe { MmapMut::map_mut(&file)? };
 
                     for i in 0..size {
-                        let progress = i as f64 / (size - 1) as f64;
+                        let progress = if size == 1 {
+                            1.0
+                        } else {
+                            i as f64 / (size - 1) as f64
+                        };
                         let val = (progress * 65535.0) as u16;
                         
                         let r = (val as f64 * r_mult) as u16;

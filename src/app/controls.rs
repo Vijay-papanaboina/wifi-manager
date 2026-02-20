@@ -140,8 +140,8 @@ pub fn setup_controls(widgets: &PanelWidgets) {
             let manager = Rc::new(manager);
             let n_scale_watcher = n_scale.clone();
             
-            // Set initial value (assuming 6500K)
-            n_scale_watcher.set_value(6500.0);
+            // Set initial value
+            n_scale_watcher.set_value(manager.get_temperature_kelvin());
 
             // Listen for UI slider changes -> tell backend
             let mgr_clone = Rc::clone(&manager);
