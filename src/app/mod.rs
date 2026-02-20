@@ -9,6 +9,7 @@
 mod bluetooth;
 mod bt_live_updates;
 mod connection;
+mod controls;
 mod live_updates;
 mod scanning;
 mod shortcuts;
@@ -68,6 +69,7 @@ pub fn setup(
     shortcuts::setup_escape_key(widgets, panel_state);
     shortcuts::setup_reload_on_request(widgets, Rc::clone(&state), reload_requested);
     scanning::setup_initial_state(widgets, Rc::clone(&state));
+    controls::setup_controls(widgets);
 }
 
 /// Clone the WifiManager out of the RefCell (avoids holding borrow across await).

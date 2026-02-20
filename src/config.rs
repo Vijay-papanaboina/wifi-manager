@@ -6,7 +6,9 @@ use std::path::PathBuf;
 /// Window position on screen.
 #[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
+#[derive(Default)]
 pub enum Position {
+    #[default]
     Center,
     TopRight,
     TopCenter,
@@ -18,11 +20,6 @@ pub enum Position {
     CenterLeft,
 }
 
-impl Default for Position {
-    fn default() -> Self {
-        Self::Center
-    }
-}
 
 /// Application configuration.
 #[derive(Debug, Clone, Deserialize)]

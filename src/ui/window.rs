@@ -11,7 +11,7 @@ use gtk4::{
 };
 use gtk4_layer_shell::{Edge, KeyboardMode, Layer, LayerShell};
 
-use super::{device_list, header, network_list, password_dialog};
+use super::{device_list, header, network_list, password_dialog, controls_panel};
 use crate::config::{Config, Position};
 
 /// All the UI handles needed by the app controller.
@@ -38,6 +38,8 @@ pub struct PanelWidgets {
     pub bt_spinner: gtk4::Spinner,
     // Content stack
     pub content_stack: Stack,
+    // Controls panel
+    pub controls: controls_panel::ControlsPanel,
 }
 
 /// Build the main floating panel window with all UI components.
@@ -48,7 +50,7 @@ pub fn build_window(app: &Application) -> PanelWidgets {
         .application(app)
         .title("WiFi Manager")
         .default_width(340)
-        .default_height(400)
+        .default_height(480) // Increased height from 400 to 480 to fit the new footer smoothly
         .build();
 
     // Initialize layer shell
@@ -80,12 +82,14 @@ pub fn build_window(app: &Application) -> PanelWidgets {
     let content_stack = Stack::new();
     content_stack.set_transition_type(StackTransitionType::Crossfade);
     content_stack.set_transition_duration(150);
+    content_stack.set_vexpand(true); // Pushes the controls panel to the absolute bottom statically
     content_stack.add_css_class("content-stack");
 
     // ── Wi-Fi page ──────────────────────────────────────────────────
     let wifi_page = GtkBox::new(Orientation::Vertical, 0);
 
     let (scrolled, list_box) = network_list::build_network_list();
+    scrolled.set_vexpand(true); // Expands the scrolling list specifically inside the page
 
     let spinner = gtk4::Spinner::new();
     spinner.set_spinning(true);
@@ -110,6 +114,7 @@ pub fn build_window(app: &Application) -> PanelWidgets {
     let bt_page = GtkBox::new(Orientation::Vertical, 0);
 
     let (bt_scrolled, bt_list_box) = device_list::build_device_list();
+    bt_scrolled.set_vexpand(true);
 
     let bt_spinner = gtk4::Spinner::new();
     bt_spinner.set_spinning(true);
@@ -129,6 +134,10 @@ pub fn build_window(app: &Application) -> PanelWidgets {
     // Start on Wi-Fi page
     content_stack.set_visible_child_name("wifi");
     main_box.append(&content_stack);
+
+    // ── Controls Panel (Bottom Footer) ─────────────────────────────
+    let controls = controls_panel::ControlsPanel::new();
+    main_box.append(&controls.container);
 
     // ── Tab switching — only manages content stack page ──────────────
     // Title, status, and switch sync is handled by app controllers
@@ -177,6 +186,7 @@ pub fn build_window(app: &Application) -> PanelWidgets {
         bt_scroll: bt_scrolled,
         bt_spinner,
         content_stack,
+        controls,
     }
 }
 
