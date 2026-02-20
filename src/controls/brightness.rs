@@ -28,6 +28,9 @@ pub struct BrightnessManager {
 }
 
 impl BrightnessManager {
+    /// The minimum allowed brightness percentage to prevent the screen from turning completely off.
+    pub const MIN_BRIGHTNESS_PERCENT: f64 = 5.0;
+
     /// Creates a new BrightnessManager. Discovers the hardware path dynamically.
     pub async fn new() -> ZbusResult<Self> {
         let connection = Connection::system().await?;
@@ -110,12 +113,10 @@ impl BrightnessManager {
             }
         };
         
-        const MIN_BRIGHTNESS_PERCENT: f64 = 5.0;
-        
         // Treat NaN/infinity as minimum brightness
-        let percent = if percent.is_finite() { percent } else { MIN_BRIGHTNESS_PERCENT };
+        let percent = if percent.is_finite() { percent } else { Self::MIN_BRIGHTNESS_PERCENT };
         // Clamp to minimum so the screen doesn't turn off completely
-        let percent = percent.clamp(MIN_BRIGHTNESS_PERCENT, 100.0);
+        let percent = percent.clamp(Self::MIN_BRIGHTNESS_PERCENT, 100.0);
         let target = ((percent / 100.0) * max as f64).round() as u32;
         // Ensure at least 1 to prevent screen turning off completely
         let target = target.max(1);
@@ -127,7 +128,10 @@ impl BrightnessManager {
     }
 
     /// Periodically checks for brightness changes and calls the callback if it changed.
-    /// Returns a glib::SourceId that can be used to stop the watcher.
+    /// Returns a glib::SourceId that can be used to stop the watcher via `glib::source_remove()`.
+    /// 
+    /// **Important**: The watcher keeps the `BrightnessManager` alive through its internal `Rc`.
+    /// To release resources, the caller must call `glib::source_remove()` with the returned ID.
     pub fn watch_changes<F>(self: &Rc<Self>, interval_ms: u32, callback: F) -> glib::SourceId
     where
         F: Fn(f64) + 'static,

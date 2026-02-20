@@ -1,6 +1,6 @@
 use gtk4::{prelude::*, Box, Orientation, Scale, Image};
 
-/// The unified panel for Brightness and Volume sliders.
+/// The unified panel for Brightness, Volume, and Night Mode controls.
 pub struct ControlsPanel {
     pub container: Box,
     pub brightness_scale: Scale,
@@ -88,12 +88,9 @@ impl ControlsPanel {
             .draw_value(false)
             .tooltip_text("Night Mode (Color Temperature)")
             .adjustment(&gtk4::Adjustment::new(6500.0, 2500.0, 6500.0, 100.0, 500.0, 0.0))
-            .inverted(true) // So right is warmer (lower temp), left is cooler (higher temp), or standard is right = 6500, left = 2500? Wait, lower temp is warmer. Usually right is "more effect", meaning lower temperature. Let's make it standard 2500 to 6500, not inverted.
+            // Inverted so slider right = warmer (2500K), left = cooler (6500K)
+            .inverted(true)
             .build();
-
-        // Standard ranges for color temp: slider left = 2500K (warm), right = 6500K (cold).
-        // Let's actually invert it so moving slider right makes it WARMER (lower temp).
-        night_mode_scale.set_inverted(true);
 
         night_mode_row.append(&night_mode_icon);
         night_mode_row.append(&night_mode_scale);
