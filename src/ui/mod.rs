@@ -1,3 +1,4 @@
+pub mod controls_panel;
 pub mod device_list;
 pub mod device_row;
 pub mod header;

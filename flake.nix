@@ -7,7 +7,10 @@
       url = "github:oxalica/rust-overlay";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    crane.url = "github:ipetkov/crane";
+    crane = {
+      url = "github:ipetkov/crane";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
     utils.url = "github:numtide/flake-utils";
   };
 
@@ -34,6 +37,7 @@
           cairo
           pango
           gdk-pixbuf
+          libpulseaudio
         ];
 
         nativeBuildInputs = with pkgs; [
@@ -58,9 +62,22 @@
         wifi-manager = craneLib.buildPackage (commonArgs // {
           inherit cargoArtifacts;
         });
+
+        cargoClippy = craneLib.cargoClippy (commonArgs // {
+          inherit cargoArtifacts;
+          cargoClippyExtraArgs = "--all-targets -- --deny warnings";
+        });
+
+        cargoFmt = craneLib.cargoFmt {
+          src = commonArgs.src;
+        };
       in
       {
         packages.default = wifi-manager;
+
+        checks = {
+          inherit wifi-manager cargoClippy cargoFmt;
+        };
 
         devShells.default = craneLib.devShell {
           inputsFrom = [ wifi-manager ];

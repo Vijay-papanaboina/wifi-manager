@@ -6,7 +6,7 @@ use gtk4::{Box as GtkBox, Label, ListBoxRow, Orientation};
 use crate::dbus::access_point::{Band, Network, SecurityType};
 
 /// Signal strength thresholds for icon selection.
-fn signal_icon<'a>(strength: u8, icons: &'a [String; 4]) -> (&'a str, &'static str) {
+fn signal_icon(strength: u8, icons: &[String; 4]) -> (&str, &'static str) {
     let icon = match strength {
         75..=100 => &icons[3],  // strong
         50..=74 => &icons[2],   // good

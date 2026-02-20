@@ -142,7 +142,7 @@ impl BluetoothManager {
             devices.push(device);
         }
 
-        devices.sort_by(|a, b| a.sort_key().cmp(&b.sort_key()));
+        devices.sort_by_cached_key(|a| a.sort_key());
         log::info!("Bluetooth device list: {} devices", devices.len());
         Ok(devices)
     }

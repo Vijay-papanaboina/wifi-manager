@@ -15,8 +15,8 @@ A lightweight, native WiFi and Bluetooth manager for Wayland compositors. Built 
 - [Features](#features)
 - [Installation](#installation)
   - [Arch Linux (AUR)](#arch-linux-aur)
-  - [Nix (flakes)](#nix)
-  - [Build from Source (Traditional)](#build-from-source-traditional)
+  - [Nix](#nix)
+  - [Other Distributions (Build from Source)](#other-distributions-build-from-source)
 - [Usage](#usage)
   - [Hyprland Integration](#hyprland-integration)
 - [Configuration](#configuration)
@@ -64,6 +64,7 @@ There is no widely adopted standalone GUI WiFi manager designed specifically for
 
 ### General
 
+- **Brightness & Volume Controls** — dedicated sliders statically pinned to the bottom of the panel, syncing in real-time with system events via `libpulse` and `systemd-logind`
 - **Tabbed interface** — switch between WiFi and Bluetooth tabs
 - **Context-aware toggle** — single switch controls WiFi or Bluetooth power based on active tab
 - **Daemon mode** — runs as a background process, toggled via CLI flag or D-Bus
@@ -95,6 +96,8 @@ The following must be installed and running on your system:
 
 - **NetworkManager** — system network service
 - **BlueZ** — Bluetooth protocol stack (optional — BT tab is hidden if unavailable)
+- **PulseAudio / PipeWire-Pulse** — Audio server for volume control integration
+- **systemd-logind** — Session manager for brightness control (standard on systemd distros)
 - **GTK4** — UI toolkit
 - **gtk4-layer-shell** — Wayland layer-shell integration
 
@@ -148,19 +151,19 @@ cargo run
 **Arch Linux:**
 
 ```sh
-sudo pacman -S gtk4 gtk4-layer-shell networkmanager bluez rust
+sudo pacman -S gtk4 gtk4-layer-shell networkmanager bluez rust libpulse
 ```
 
 **Fedora:**
 
 ```sh
-sudo dnf install gtk4-devel gtk4-layer-shell-devel NetworkManager bluez rust cargo
+sudo dnf install gtk4-devel gtk4-layer-shell-devel NetworkManager bluez rust cargo pulseaudio-libs-devel
 ```
 
 **Ubuntu/Debian:**
 
 ```sh
-sudo apt install libgtk-4-dev libgtk4-layer-shell-dev network-manager bluez cargo
+sudo apt install libgtk-4-dev libgtk4-layer-shell-dev network-manager bluez cargo libpulse-dev
 ```
 
 **Build:**
@@ -282,7 +285,12 @@ src/
 │   ├── live_updates.rs      # WiFi D-Bus signal subscriptions
 │   ├── bluetooth.rs         # Bluetooth controller (scan, connect, power)
 │   ├── bt_live_updates.rs   # Bluetooth D-Bus signal subscriptions
+│   ├── controls.rs          # Wires GTK controls UI to backend managers
 │   └── shortcuts.rs         # Keyboard shortcuts and hot-reload
+├── controls/
+│   ├── mod.rs               # Entry point for backend controls
+│   ├── brightness.rs        # BrightnessManager (systemd-logind + sysfs)
+│   └── volume.rs            # VolumeManager (libpulse-binding)
 ├── dbus/
 │   ├── proxies.rs           # NetworkManager D-Bus proxy traits (zbus)
 │   ├── network_manager.rs   # High-level WiFi operations
@@ -294,6 +302,7 @@ src/
 └── ui/
     ├── window.rs            # Layer-shell window setup, tab stack
     ├── header.rs            # Header bar with tab switcher
+    ├── controls_panel.rs    # Brightness and Volume sliders (footer)
     ├── network_list.rs      # WiFi network list
     ├── network_row.rs       # WiFi network row widget
     ├── device_list.rs       # Bluetooth device list
@@ -311,6 +320,8 @@ src/
 | D-Bus client        | zbus (pure Rust, async-io backend) |
 | WiFi backend        | NetworkManager (D-Bus)             |
 | Bluetooth backend   | BlueZ (D-Bus)                      |
+| Audio backend       | PulseAudio / PipeWire (libpulse)   |
+| Brightness backend  | systemd-logind (D-Bus via zbus)    |
 | Configuration       | serde + toml                       |
 | CLI                 | clap                               |
 
