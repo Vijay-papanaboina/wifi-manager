@@ -5,12 +5,14 @@ use gtk4::glib;
 
 use crate::controls::brightness::BrightnessManager;
 use crate::controls::volume::VolumeManager;
+use crate::controls::night_mode::NightModeManager;
 use crate::ui::window::PanelWidgets;
 
 pub fn setup_controls(widgets: &PanelWidgets) {
     let brightness_scale = widgets.controls.brightness_scale.clone();
     let volume_scale = widgets.controls.volume_scale.clone();
     let volume_icon = widgets.controls.volume_icon.clone();
+    let night_mode_scale = widgets.controls.night_mode_scale.clone();
 
     // ── Brightness ───────────────────────────────────────────────
     let b_scale = brightness_scale.clone();
@@ -129,5 +131,25 @@ pub fn setup_controls(widgets: &PanelWidgets) {
             *handler_id.borrow_mut() = Some(id);
         }
         Err(e) => log::error!("Failed to init VolumeManager: {}", e),
+    }
+
+    // ── Night Mode ───────────────────────────────────────────────
+    let n_scale = night_mode_scale.clone();
+    match NightModeManager::new() {
+        Ok(manager) => {
+            let manager = Rc::new(manager);
+            let n_scale_watcher = n_scale.clone();
+            
+            // Set initial value (assuming 6500K)
+            n_scale_watcher.set_value(6500.0);
+
+            // Listen for UI slider changes -> tell backend
+            let mgr_clone = Rc::clone(&manager);
+            n_scale.connect_value_changed(move |scale| {
+                let val = scale.value();
+                mgr_clone.set_temperature(val);
+            });
+        }
+        Err(e) => log::error!("Failed to init NightModeManager: {}", e),
     }
 }
