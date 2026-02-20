@@ -38,6 +38,8 @@
           pango
           gdk-pixbuf
           libpulseaudio
+          libxkbcommon
+          wayland
         ];
 
         nativeBuildInputs = with pkgs; [
