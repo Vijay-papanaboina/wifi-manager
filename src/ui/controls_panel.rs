@@ -41,7 +41,8 @@ impl ControlsPanel {
         let brightness_scale = Scale::builder()
             .orientation(Orientation::Horizontal)
             .hexpand(true)
-            .draw_value(false)
+            .draw_value(true)
+            .value_pos(gtk4::PositionType::Right)
             .tooltip_text("Brightness")
             .adjustment(&gtk4::Adjustment::new(100.0, 5.0, 100.0, 1.0, 10.0, 0.0))
             .build();
@@ -63,7 +64,8 @@ impl ControlsPanel {
         let volume_scale = Scale::builder()
             .orientation(Orientation::Horizontal)
             .hexpand(true)
-            .draw_value(false)
+            .draw_value(true)
+            .value_pos(gtk4::PositionType::Right)
             .tooltip_text("Volume")
             .adjustment(&gtk4::Adjustment::new(100.0, 0.0, 100.0, 1.0, 10.0, 0.0))
             .build();
@@ -82,14 +84,14 @@ impl ControlsPanel {
             .pixel_size(16)
             .build();
             
+        // Map 0 -> 6500K (coolest/no effect), 4000 -> 2500K (warmest)
         let night_mode_scale = Scale::builder()
             .orientation(Orientation::Horizontal)
             .hexpand(true)
-            .draw_value(false)
+            .draw_value(true)
+            .value_pos(gtk4::PositionType::Right)
             .tooltip_text("Night Mode (Color Temperature)")
-            .adjustment(&gtk4::Adjustment::new(6500.0, 2500.0, 6500.0, 100.0, 500.0, 0.0))
-            // Inverted so slider right = warmer (2500K), left = cooler (6500K)
-            .inverted(true)
+            .adjustment(&gtk4::Adjustment::new(0.0, 0.0, 4000.0, 100.0, 500.0, 0.0))
             .build();
 
         night_mode_row.append(&night_mode_icon);
