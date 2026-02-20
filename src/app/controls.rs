@@ -1,4 +1,4 @@
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use gtk4::prelude::*;
 use gtk4::glib;
@@ -18,17 +18,33 @@ pub fn setup_controls(widgets: &PanelWidgets) {
         match BrightnessManager::new().await {
             Ok(manager) => {
                 let manager = Rc::new(manager);
+                let is_updating_ui = Rc::new(Cell::new(false));
                 
                 // Set initial value
                 if let Some(pct) = manager.get_brightness_percent() {
+                    is_updating_ui.set(true);
                     b_scale.set_value(pct);
+                    is_updating_ui.set(false);
                 }
+
+                // Start watching for external brightness changes
+                let is_updating_ui_watcher = Rc::clone(&is_updating_ui);
+                let b_scale_watcher = b_scale.clone();
+                manager.watch_changes(250, move |val| {
+                    is_updating_ui_watcher.set(true);
+                    b_scale_watcher.set_value(val);
+                    is_updating_ui_watcher.set(false);
+                });
 
                 // Listen for UI slider changes -> tell backend (debounced)
                 let mgr_clone = Rc::clone(&manager);
+                let is_updating_ui_slider = Rc::clone(&is_updating_ui);
                 let pending_source: Rc<RefCell<Option<glib::SourceId>>> = Rc::new(RefCell::new(None));
                 
                 b_scale.connect_value_changed(move |scale| {
+                    if is_updating_ui_slider.get() {
+                        return;
+                    }
                     let val = scale.value();
                     
                     // Cancel any pending update

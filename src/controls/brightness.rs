@@ -1,7 +1,10 @@
 use std::fs;
 use std::path::PathBuf;
+use std::rc::Rc;
+use std::cell::Cell;
 use zbus::{Connection, Result as ZbusResult};
 use log::{debug, info, warn};
+use gtk4::glib;
 
 /// Proxy for the systemd-logind Session interface.
 #[zbus::proxy(
@@ -121,5 +124,26 @@ impl BrightnessManager {
         // Using "backlight" as the subsystem, which is standard for /sys/class/backlight
         self.proxy.set_brightness("backlight", &info.name, target).await?;
         Ok(())
+    }
+
+    /// Periodically checks for brightness changes and calls the callback if it changed.
+    /// Returns a glib::SourceId that can be used to stop the watcher.
+    pub fn watch_changes<F>(self: &Rc<Self>, interval_ms: u32, callback: F) -> glib::SourceId
+    where
+        F: Fn(f64) + 'static,
+    {
+        let mgr = Rc::clone(self);
+        let last_val = Rc::new(Cell::new(mgr.get_brightness_percent().unwrap_or(0.0)));
+        
+        glib::timeout_add_local(std::time::Duration::from_millis(interval_ms as u64), move || {
+            if let Some(current) = mgr.get_brightness_percent() {
+                // Use a small threshold to avoid jitter
+                if (current - last_val.get()).abs() > 0.5 {
+                    last_val.set(current);
+                    callback(current);
+                }
+            }
+            glib::ControlFlow::Continue
+        })
     }
 }
