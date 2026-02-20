@@ -97,7 +97,7 @@ The following must be installed and running on your system:
 - **NetworkManager** — system network service
 - **BlueZ** — Bluetooth protocol stack (optional — BT tab is hidden if unavailable)
 - **PulseAudio / PipeWire-Pulse** — Audio server for volume control integration
-- **systemd-logind** — System session mapper for brightness control (standard on systemd distros)
+- **systemd-logind** — Session manager for brightness control (standard on systemd distros)
 - **GTK4** — UI toolkit
 - **gtk4-layer-shell** — Wayland layer-shell integration
 

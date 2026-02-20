@@ -41,6 +41,7 @@ impl ControlsPanel {
             .orientation(Orientation::Horizontal)
             .hexpand(true)
             .draw_value(false)
+            .tooltip_text("Brightness")
             .adjustment(&gtk4::Adjustment::new(100.0, 5.0, 100.0, 1.0, 10.0, 0.0))
             .build();
 
@@ -62,6 +63,7 @@ impl ControlsPanel {
             .orientation(Orientation::Horizontal)
             .hexpand(true)
             .draw_value(false)
+            .tooltip_text("Volume")
             .adjustment(&gtk4::Adjustment::new(100.0, 0.0, 100.0, 1.0, 10.0, 0.0))
             .build();
 

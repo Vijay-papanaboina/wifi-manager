@@ -1,4 +1,4 @@
-use std::cell::{Cell, RefCell};
+use std::cell::RefCell;
 use std::rc::Rc;
 use gtk4::prelude::*;
 use gtk4::glib;
@@ -64,14 +64,18 @@ pub fn setup_controls(widgets: &PanelWidgets) {
     // ── Volume ───────────────────────────────────────────────────
     let v_scale = volume_scale.clone();
     let v_icon = volume_icon.clone();
-    let is_volume_updating = Rc::new(Cell::new(false));
-    let is_volume_updating_cb = is_volume_updating.clone();
+    let handler_id: Rc<RefCell<Option<glib::SignalHandlerId>>> = Rc::new(RefCell::new(None));
+    let handler_id_cb = handler_id.clone();
     
     // Init backend with a reactive callback that updates the UI
     match VolumeManager::new(move |state| {
-        is_volume_updating_cb.set(true);
+        if let Some(id) = handler_id_cb.borrow().as_ref() {
+            v_scale.block_signal(id);
+        }
         v_scale.set_value(state.percent);
-        is_volume_updating_cb.set(false);
+        if let Some(id) = handler_id_cb.borrow().as_ref() {
+            v_scale.unblock_signal(id);
+        }
         
         let icon_name = if state.muted || state.percent < 1.0 {
             "audio-volume-muted-symbolic"
@@ -86,12 +90,11 @@ pub fn setup_controls(widgets: &PanelWidgets) {
     }) {
         Ok(manager) => {
             // Listen for UI slider changes -> tell backend
-            volume_scale.connect_value_changed(move |scale| {
-                if !is_volume_updating.get() {
-                    let val = scale.value();
-                    manager.set_volume_percent(val);
-                }
+            let id = volume_scale.connect_value_changed(move |scale| {
+                let val = scale.value();
+                manager.set_volume_percent(val);
             });
+            *handler_id.borrow_mut() = Some(id);
         }
         Err(e) => log::error!("Failed to init VolumeManager: {}", e),
     }

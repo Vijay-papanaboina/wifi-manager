@@ -87,7 +87,11 @@ impl VolumeManager {
                 }
         })));
 
-        ctx.subscribe(InterestMaskSet::SINK | InterestMaskSet::SERVER, |_| {});
+        ctx.subscribe(InterestMaskSet::SINK | InterestMaskSet::SERVER, |success| {
+            if !success {
+                error!("Failed to subscribe to PulseAudio events");
+            }
+        });
         
         drop(ctx);
         self.refresh_state();
@@ -130,11 +134,10 @@ impl VolumeManager {
         });
     }
     pub fn set_volume_percent(self: &Rc<Self>, percent: f64) {
-        // Clamp to valid range (0-100%, or extend to 150% if over-amplification is desired)
+        // Clamp to valid range (0-100%). Over-amplification is not supported.
         let percent = percent.clamp(0.0, 100.0);
         let sink_name = self.default_sink_name.borrow().clone();
         if let Some(name) = sink_name {
-            let _vol_val = ((percent / 100.0) * Volume::NORMAL.0 as f64).round() as u32;
             let vol_val = ((percent / 100.0) * Volume::NORMAL.0 as f64).round() as u32;
             let ctx = self.context.borrow();
             let intro = ctx.introspect();
@@ -150,9 +153,15 @@ impl VolumeManager {
                         
                         let ctx2 = mgr.context.borrow_mut();
                         let mut intro2 = ctx2.introspect();
-                        intro2.set_sink_volume_by_name(&name_clone, &new_vol, None);
+                        intro2.set_sink_volume_by_name(&name_clone, &new_vol, Some(Box::new(|success| {
+                            if !success {
+                                error!("Failed to set PulseAudio volume on sink");
+                            }
+                        })));
                     }
             });
+        } else {
+            log::warn!("Cannot set volume: No default PulseAudio sink available");
         }
     }
 }

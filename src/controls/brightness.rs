@@ -13,7 +13,7 @@ trait Session {
     fn set_brightness(&self, subsystem: &str, name: &str, brightness: u32) -> ZbusResult<()>;
 }
 
-pub struct BacklightInfo {
+pub(crate) struct BacklightInfo {
     dir: PathBuf,
     name: String,
 }
@@ -67,7 +67,7 @@ impl BrightnessManager {
     }
 
     /// Reads a u32 value from a sysfs file.
-    fn read_sysfs_u32(path: &PathBuf) -> Option<u32> {
+    fn read_sysfs_u32(path: &std::path::Path) -> Option<u32> {
         fs::read_to_string(path)
             .ok()
             .and_then(|s| s.trim().parse::<u32>().ok())
@@ -109,6 +109,8 @@ impl BrightnessManager {
         
         const MIN_BRIGHTNESS_PERCENT: f64 = 5.0;
         
+        // Treat NaN/infinity as minimum brightness
+        let percent = if percent.is_finite() { percent } else { MIN_BRIGHTNESS_PERCENT };
         // Clamp to minimum so the screen doesn't turn off completely
         let percent = percent.clamp(MIN_BRIGHTNESS_PERCENT, 100.0);
         let target = ((percent / 100.0) * max as f64).round() as u32;

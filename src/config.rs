@@ -4,9 +4,8 @@ use serde::Deserialize;
 use std::path::PathBuf;
 
 /// Window position on screen.
-#[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
-#[derive(Default)]
 pub enum Position {
     #[default]
     Center,
