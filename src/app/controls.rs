@@ -1,19 +1,28 @@
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use gtk4::prelude::*;
-use gtk4::glib;
+use gtk4::{glib, Scale};
 
 use crate::controls::brightness::BrightnessManager;
 use crate::controls::volume::VolumeManager;
+use crate::controls::night_mode::NightModeManager;
 use crate::ui::window::PanelWidgets;
 
 pub fn setup_controls(widgets: &PanelWidgets) {
     let brightness_scale = widgets.controls.brightness_scale.clone();
     let volume_scale = widgets.controls.volume_scale.clone();
     let volume_icon = widgets.controls.volume_icon.clone();
+    let night_mode_scale = widgets.controls.night_mode_scale.clone();
+
+    // Formatter for brightness and volume
+    let percent_formatter = |_: &Scale, val: f64| -> String {
+        format!("{}%", val.round() as i32)
+    };
 
     // ── Brightness ───────────────────────────────────────────────
     let b_scale = brightness_scale.clone();
+    b_scale.set_format_value_func(percent_formatter);
+
     glib::spawn_future_local(async move {
         match BrightnessManager::new().await {
             Ok(manager) => {
@@ -79,6 +88,7 @@ pub fn setup_controls(widgets: &PanelWidgets) {
 
     // ── Volume ───────────────────────────────────────────────────
     let v_scale = volume_scale.clone();
+    v_scale.set_format_value_func(percent_formatter);
     let v_icon = volume_icon.clone();
     let handler_id: Rc<RefCell<Option<glib::SignalHandlerId>>> = Rc::new(RefCell::new(None));
     let handler_id_cb = handler_id.clone();
@@ -129,5 +139,33 @@ pub fn setup_controls(widgets: &PanelWidgets) {
             *handler_id.borrow_mut() = Some(id);
         }
         Err(e) => log::error!("Failed to init VolumeManager: {}", e),
+    }
+
+    // ── Night Mode ───────────────────────────────────────────────
+    let n_scale = night_mode_scale.clone();
+    
+    n_scale.set_format_value_func(|_, val| -> String {
+        let kelvin: f64 = 6500.0 - val;
+        format!("{}K", kelvin.round() as i32)
+    });
+
+    match NightModeManager::new() {
+        Ok(manager) => {
+            let manager = Rc::new(manager);
+            let n_scale_watcher = n_scale.clone();
+            
+            // Set initial value
+            let current_kelvin = manager.get_temperature_kelvin();
+            n_scale_watcher.set_value(6500.0 - current_kelvin);
+
+            // Listen for UI slider changes -> tell backend
+            let mgr_clone = Rc::clone(&manager);
+            n_scale.connect_value_changed(move |scale| {
+                let val = scale.value();
+                let kelvin = 6500.0 - val;
+                let _ = mgr_clone.set_temperature(kelvin);
+            });
+        }
+        Err(e) => log::error!("Failed to init NightModeManager: {}", e),
     }
 }

@@ -65,6 +65,7 @@ There is no widely adopted standalone GUI WiFi manager designed specifically for
 ### General
 
 - **Brightness & Volume Controls** — dedicated sliders statically pinned to the bottom of the panel, syncing in real-time with system events via `libpulse` and `systemd-logind`
+- **Night Mode (Color Temperature)** — dedicated slider to adjust display warmth, powered by Wayland's `wlr-gamma-control` protocol
 - **Tabbed interface** — switch between WiFi and Bluetooth tabs
 - **Context-aware toggle** — single switch controls WiFi or Bluetooth power based on active tab
 - **Daemon mode** — runs as a background process, toggled via CLI flag or D-Bus
@@ -144,7 +145,7 @@ cargo run
 - [NetworkManager](https://networkmanager.dev/) as the system network service
 - [BlueZ](http://www.bluez.org/) for Bluetooth support (optional)
 - GTK4 and gtk4-layer-shell libraries
-- Rust toolchain (1.70+)
+- Rust toolchain (1.85+)
 
 **System Dependencies:**
 
@@ -290,7 +291,8 @@ src/
 ├── controls/
 │   ├── mod.rs               # Entry point for backend controls
 │   ├── brightness.rs        # BrightnessManager (systemd-logind + sysfs)
-│   └── volume.rs            # VolumeManager (libpulse-binding)
+│   ├── volume.rs            # VolumeManager (libpulse-binding)
+│   └── night_mode.rs        # NightModeManager (Wayland wlr-gamma-control)
 ├── dbus/
 │   ├── proxies.rs           # NetworkManager D-Bus proxy traits (zbus)
 │   ├── network_manager.rs   # High-level WiFi operations
@@ -316,12 +318,13 @@ src/
 | ------------------- | ---------------------------------- |
 | Language            | Rust                               |
 | UI framework        | GTK4                               |
-| Wayland integration | gtk4-layer-shell                   |
+| Wayland integration | gtk4-layer-shell / wayland-client  |
 | D-Bus client        | zbus (pure Rust, async-io backend) |
 | WiFi backend        | NetworkManager (D-Bus)             |
 | Bluetooth backend   | BlueZ (D-Bus)                      |
 | Audio backend       | PulseAudio / PipeWire (libpulse)   |
 | Brightness backend  | systemd-logind (D-Bus via zbus)    |
+| Night Mode backend  | wlr-gamma-control (Wayland)        |
 | Configuration       | serde + toml                       |
 | CLI                 | clap                               |
 

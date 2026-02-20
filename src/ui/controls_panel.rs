@@ -1,11 +1,12 @@
 use gtk4::{prelude::*, Box, Orientation, Scale, Image};
 
-/// The unified panel for Brightness and Volume sliders.
+/// The unified panel for Brightness, Volume, and Night Mode controls.
 pub struct ControlsPanel {
     pub container: Box,
     pub brightness_scale: Scale,
     pub volume_scale: Scale,
     pub volume_icon: Image,
+    pub night_mode_scale: Scale,
 }
 
 impl Default for ControlsPanel {
@@ -40,7 +41,8 @@ impl ControlsPanel {
         let brightness_scale = Scale::builder()
             .orientation(Orientation::Horizontal)
             .hexpand(true)
-            .draw_value(false)
+            .draw_value(true)
+            .value_pos(gtk4::PositionType::Right)
             .tooltip_text("Brightness")
             .adjustment(&gtk4::Adjustment::new(100.0, 5.0, 100.0, 1.0, 10.0, 0.0))
             .build();
@@ -62,7 +64,8 @@ impl ControlsPanel {
         let volume_scale = Scale::builder()
             .orientation(Orientation::Horizontal)
             .hexpand(true)
-            .draw_value(false)
+            .draw_value(true)
+            .value_pos(gtk4::PositionType::Right)
             .tooltip_text("Volume")
             .adjustment(&gtk4::Adjustment::new(100.0, 0.0, 100.0, 1.0, 10.0, 0.0))
             .build();
@@ -70,15 +73,41 @@ impl ControlsPanel {
         volume_row.append(&volume_icon);
         volume_row.append(&volume_scale);
 
+        // Night Mode Row
+        let night_mode_row = Box::builder()
+            .orientation(Orientation::Horizontal)
+            .spacing(12)
+            .build();
+            
+        let night_mode_icon = Image::builder()
+            .icon_name("weather-clear-night-symbolic")
+            .pixel_size(16)
+            .build();
+            
+        // Map 0 -> 6500K (coolest/no effect), 4000 -> 2500K (warmest)
+        let night_mode_scale = Scale::builder()
+            .orientation(Orientation::Horizontal)
+            .hexpand(true)
+            .draw_value(true)
+            .value_pos(gtk4::PositionType::Right)
+            .tooltip_text("Night Mode (Color Temperature)")
+            .adjustment(&gtk4::Adjustment::new(0.0, 0.0, 4000.0, 100.0, 500.0, 0.0))
+            .build();
+
+        night_mode_row.append(&night_mode_icon);
+        night_mode_row.append(&night_mode_scale);
+
         // Assemble
         container.append(&brightness_row);
         container.append(&volume_row);
+        container.append(&night_mode_row);
 
         Self {
             container,
             brightness_scale,
             volume_scale,
             volume_icon,
+            night_mode_scale,
         }
     }
 }
