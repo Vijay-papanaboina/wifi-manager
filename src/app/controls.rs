@@ -68,26 +68,42 @@ pub fn setup_controls(widgets: &PanelWidgets) {
     let handler_id_cb = handler_id.clone();
     
     // Init backend with a reactive callback that updates the UI
-    match VolumeManager::new(move |state| {
-        if let Some(id) = handler_id_cb.borrow().as_ref() {
-            v_scale.block_signal(id);
-        }
-        v_scale.set_value(state.percent);
-        if let Some(id) = handler_id_cb.borrow().as_ref() {
-            v_scale.unblock_signal(id);
-        }
-        
-        let icon_name = if state.muted || state.percent < 1.0 {
-            "audio-volume-muted-symbolic"
-        } else if state.percent < 33.0 {
-            "audio-volume-low-symbolic"
-        } else if state.percent < 66.0 {
-            "audio-volume-medium-symbolic"
-        } else {
-            "audio-volume-high-symbolic"
-        };
-        v_icon.set_icon_name(Some(icon_name));
-    }) {
+    match VolumeManager::new(
+        // on_change callback
+        move |state| {
+            if let Some(id) = handler_id_cb.borrow().as_ref() {
+                v_scale.block_signal(id);
+            }
+            v_scale.set_value(state.percent);
+            if let Some(id) = handler_id_cb.borrow().as_ref() {
+                v_scale.unblock_signal(id);
+            }
+            
+            let icon_name = if state.muted {
+                "audio-volume-muted-symbolic"
+            } else if state.percent < 1.0 {
+                "audio-volume-low-symbolic"
+            } else if state.percent < 33.0 {
+                "audio-volume-low-symbolic"
+            } else if state.percent < 66.0 {
+                "audio-volume-medium-symbolic"
+            } else {
+                "audio-volume-high-symbolic"
+            };
+            v_icon.set_icon_name(Some(icon_name));
+        },
+        // on_connected callback
+        move |result| {
+            match result {
+                Ok(_) => {
+                    log::info!("Volume control connected successfully");
+                }
+                Err(e) => {
+                    log::error!("Failed to connect Volume controls: {}", e);
+                }
+            }
+        },
+    ) {
         Ok(manager) => {
             // Listen for UI slider changes -> tell backend
             let id = volume_scale.connect_value_changed(move |scale| {

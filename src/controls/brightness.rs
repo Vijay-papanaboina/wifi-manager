@@ -114,6 +114,8 @@ impl BrightnessManager {
         // Clamp to minimum so the screen doesn't turn off completely
         let percent = percent.clamp(MIN_BRIGHTNESS_PERCENT, 100.0);
         let target = ((percent / 100.0) * max as f64).round() as u32;
+        // Ensure at least 1 to prevent screen turning off completely
+        let target = target.max(1);
         
         debug!("Setting brightness of {} to {} ({}%)", info.name, target, percent);
         // Using "backlight" as the subsystem, which is standard for /sys/class/backlight

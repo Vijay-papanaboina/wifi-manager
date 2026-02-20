@@ -24,7 +24,11 @@ pub struct VolumeManager {
 }
 
 impl VolumeManager {
-    pub fn new<F: Fn(VolumeState) + 'static>(on_change: F) -> Result<Rc<Self>, String> {
+    pub fn new<F, C>(on_change: F, on_connected: C) -> Result<Rc<Self>, String> 
+    where
+        F: Fn(VolumeState) + 'static,
+        C: FnOnce(Result<(), String>) + 'static,
+    {
         let mut proplist = Proplist::new().ok_or("Failed to create PulseAudio proplist")?;
         proplist.set_str(libpulse_binding::proplist::properties::APPLICATION_NAME, "wifi-manager")
             .map_err(|_| "Failed to set application name in proplist")?;
@@ -48,20 +52,33 @@ impl VolumeManager {
             .map_err(|e| format!("PulseAudio connect error: {}", e))?;
         let mgr_clone = Rc::downgrade(&manager);
         let retry_count = Rc::new(RefCell::new(0u32));
+        let on_connected_cb = Rc::new(RefCell::new(Some(on_connected)));
         const MAX_RETRIES: u32 = 50; // 5 seconds at 100ms intervals
         glib::timeout_add_local(std::time::Duration::from_millis(100), move || {
+            let mut on_connected_cb = on_connected_cb.borrow_mut();
             if let Some(mgr) = mgr_clone.upgrade() {
                 *retry_count.borrow_mut() += 1;
                 if *retry_count.borrow() > MAX_RETRIES {
-                    error!("PulseAudio context connection timed out");
+                    let err = "PulseAudio context connection timed out".to_string();
+                    error!("{}", err);
+                    if let Some(cb) = on_connected_cb.take() {
+                        cb(Err(err));
+                    }
                     return glib::ControlFlow::Break;
                 }
                 let state = mgr.context.borrow().get_state();
                 if state == State::Ready {
                     mgr.setup();
+                    if let Some(cb) = on_connected_cb.take() {
+                        cb(Ok(()));
+                    }
                     glib::ControlFlow::Break
                 } else if state == State::Failed || state == State::Terminated {
-                    error!("PulseAudio context failed or terminated");
+                    let err = "PulseAudio context failed or terminated".to_string();
+                    error!("{}", err);
+                    if let Some(cb) = on_connected_cb.take() {
+                        cb(Err(err));
+                    }
                     glib::ControlFlow::Break
                 } else {
                     glib::ControlFlow::Continue
