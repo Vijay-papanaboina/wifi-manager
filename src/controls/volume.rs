@@ -86,6 +86,10 @@ impl VolumeManager {
                     glib::ControlFlow::Continue
                 }
             } else {
+                // Manager was dropped before connection completed
+                if let Some(cb) = on_connected_cb.take() {
+                    cb(Err("VolumeManager dropped before connection completed".to_string()));
+                }
                 glib::ControlFlow::Break
             }
         });

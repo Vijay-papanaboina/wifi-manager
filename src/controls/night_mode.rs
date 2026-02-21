@@ -179,7 +179,7 @@ fn run_wayland_thread(
     rx: mpsc::Receiver<f64>,
     init_tx: mpsc::Sender<Result<(), Box<dyn std::error::Error + Send + Sync>>>,
     initial_temp: f64,
-    _current_temp: std::sync::Arc<std::sync::atomic::AtomicU32>
+    current_temp: std::sync::Arc<std::sync::atomic::AtomicU32>
 ) -> Result<(), Box<dyn std::error::Error>> {
     let conn = match Connection::connect_to_env() {
         Ok(c) => c,
@@ -224,21 +224,37 @@ fn run_wayland_thread(
     // Inform main thread that initialization succeeded.
     let _ = init_tx.send(Ok(()));
     
-    // Apply initial temperature
-    let _ = rx.recv_timeout(std::time::Duration::from_millis(50));
+    // Apply initial temperature, or use an incoming slider update if one arrived during boot
+    let applied_temp = match rx.recv_timeout(std::time::Duration::from_millis(50)) {
+        Ok(temp) => temp,
+        Err(_) => initial_temp,
+    };
+    
     let mut _active_files = Vec::new();
-    if let Ok(files) = apply_gamma_ramps(&state, initial_temp) {
-        let _ = event_queue.roundtrip(&mut state);
-        _active_files = files;
+    match apply_gamma_ramps(&state, applied_temp) {
+        Ok(files) => {
+            let _ = event_queue.roundtrip(&mut state);
+            _active_files = files;
+            current_temp.store(applied_temp.round() as u32, std::sync::atomic::Ordering::SeqCst);
+        }
+        Err(e) => {
+            log::warn!("Failed to apply initial gamma ramps (temp: {}): {}", applied_temp, e);
+        }
     }
 
     loop {
         // We do a brief dispatch to handle ping/pongs but mainly block on rx with a timeout.
         match rx.recv_timeout(std::time::Duration::from_millis(50)) {
             Ok(temp) => {
-                if let Ok(files) = apply_gamma_ramps(&state, temp) {
-                    let _ = event_queue.roundtrip(&mut state);
-                    _active_files = files; // drop old ones
+                match apply_gamma_ramps(&state, temp) {
+                    Ok(files) => {
+                        let _ = event_queue.roundtrip(&mut state);
+                        _active_files = files;
+                        current_temp.store(temp.round() as u32, std::sync::atomic::Ordering::SeqCst);
+                    }
+                    Err(e) => {
+                        log::warn!("Failed to apply gamma ramps: {}", e);
+                    }
                 }
             }
             Err(mpsc::RecvTimeoutError::Timeout) => {

@@ -1,8 +1,54 @@
-use gtk4::{prelude::*, Box, Orientation, Scale, Image, Revealer, ToggleButton, RevealerTransitionType, Button};
+use gtk4::{prelude::*, Box, Orientation, Scale, Image, Revealer, ToggleButton, RevealerTransitionType, Button, MessageDialog, MessageType, ButtonsType, ResponseType, Window};
+use std::rc::Rc;
+use std::cell::RefCell;
 use crate::controls::power;
 
 /// Duration of the slider reveal animation in milliseconds
 pub const SLIDE_TRANSITION_MS: u32 = 250;
+
+fn show_confirm_dialog(btn: &Button, title: &str, message: &str, action: impl FnOnce() + 'static) {
+    let window = btn.root().and_downcast::<Window>();
+    let dialog = MessageDialog::builder()
+        .modal(true)
+        .message_type(MessageType::Question)
+        .buttons(ButtonsType::OkCancel)
+        .text(title)
+        .secondary_text(message)
+        .build();
+    
+    if let Some(win) = window {
+        dialog.set_transient_for(Some(&win));
+    }
+    
+    let action_cell = Rc::new(RefCell::new(Some(action)));
+    
+    dialog.connect_response(move |dlg, response| {
+        if response == ResponseType::Ok {
+            if let Some(act) = action_cell.borrow_mut().take() {
+                act();
+            }
+        }
+        dlg.destroy();
+    });
+    dialog.present();
+}
+
+fn show_error_dialog(window: Option<&Window>, message: &str) {
+    let dialog = MessageDialog::builder()
+        .modal(true)
+        .message_type(MessageType::Error)
+        .buttons(ButtonsType::Ok)
+        .text("Error")
+        .secondary_text(message)
+        .build();
+    
+    if let Some(win) = window {
+        dialog.set_transient_for(Some(win));
+    }
+    
+    dialog.connect_response(|dlg, _| dlg.destroy());
+    dialog.present();
+}
 
 /// The unified panel for Brightness, Volume, and Night Mode controls.
 pub struct ControlsPanel {
@@ -147,25 +193,69 @@ impl ControlsPanel {
             .margin_bottom(12) // Gap from the bottom window edge
             .build();
 
-        let btn_poweroff = Button::builder().icon_name("system-shutdown-symbolic").build();
+        let btn_poweroff = Button::builder()
+            .icon_name("system-shutdown-symbolic")
+            .tooltip_text("Power Off")
+            .build();
         btn_poweroff.add_css_class("flat");
         btn_poweroff.add_css_class("circular");
-        btn_poweroff.connect_clicked(|_| power::poweroff());
+        btn_poweroff.connect_clicked(|btn| {
+            let win = btn.root().and_downcast::<Window>();
+            show_confirm_dialog(btn, "Power Off", "Are you sure you want to power off the system?", move || {
+                if let Err(e) = power::poweroff() {
+                    log::error!("{}", e);
+                    show_error_dialog(win.as_ref(), &e);
+                }
+            });
+        });
         
-        let btn_reboot = Button::builder().icon_name("system-reboot-symbolic").build();
+        let btn_reboot = Button::builder()
+            .icon_name("system-reboot-symbolic")
+            .tooltip_text("Reboot")
+            .build();
         btn_reboot.add_css_class("flat");
         btn_reboot.add_css_class("circular");
-        btn_reboot.connect_clicked(|_| power::reboot());
+        btn_reboot.connect_clicked(|btn| {
+            let win = btn.root().and_downcast::<Window>();
+            show_confirm_dialog(btn, "Reboot", "Are you sure you want to reboot the system?", move || {
+                if let Err(e) = power::reboot() {
+                    log::error!("{}", e);
+                    show_error_dialog(win.as_ref(), &e);
+                }
+            });
+        });
         
-        let btn_suspend = Button::builder().icon_name("media-playback-pause-symbolic").build();
+        let btn_suspend = Button::builder()
+            .icon_name("weather-clear-night-symbolic")
+            .tooltip_text("Suspend / Sleep")
+            .build();
         btn_suspend.add_css_class("flat");
         btn_suspend.add_css_class("circular");
-        btn_suspend.connect_clicked(|_| power::suspend());
+        btn_suspend.connect_clicked(|btn| {
+            let win = btn.root().and_downcast::<Window>();
+            show_confirm_dialog(btn, "Suspend", "Are you sure you want to suspend the system?", move || {
+                if let Err(e) = power::suspend() {
+                    log::error!("{}", e);
+                    show_error_dialog(win.as_ref(), &e);
+                }
+            });
+        });
         
-        let btn_logout = Button::builder().icon_name("system-log-out-symbolic").build();
+        let btn_logout = Button::builder()
+            .icon_name("system-log-out-symbolic")
+            .tooltip_text("Log Out")
+            .build();
         btn_logout.add_css_class("flat");
         btn_logout.add_css_class("circular");
-        btn_logout.connect_clicked(|_| power::logout());
+        btn_logout.connect_clicked(|btn| {
+            let win = btn.root().and_downcast::<Window>();
+            show_confirm_dialog(btn, "Logout", "Are you sure you want to log out?", move || {
+                if let Err(e) = power::logout() {
+                    log::error!("{}", e);
+                    show_error_dialog(win.as_ref(), &e);
+                }
+            });
+        });
 
         power_row.append(&btn_logout);
         power_row.append(&btn_suspend);
