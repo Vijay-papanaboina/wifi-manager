@@ -1,5 +1,8 @@
 use gtk4::{prelude::*, Box, Orientation, Scale, Image, Revealer, ToggleButton, RevealerTransitionType};
 
+/// Duration of the slider reveal animation in milliseconds
+pub const SLIDE_TRANSITION_MS: u32 = 250;
+
 /// The unified panel for Brightness, Volume, and Night Mode controls.
 pub struct ControlsPanel {
     pub container: Box,
@@ -45,8 +48,8 @@ impl ControlsPanel {
 
         // Revealer to animate the sliders box
         let revealer = Revealer::builder()
-            .transition_type(RevealerTransitionType::SlideUp)
-            .transition_duration(250)
+            .transition_type(RevealerTransitionType::SlideDown)
+            .transition_duration(SLIDE_TRANSITION_MS)
             .child(&sliders_box)
             .reveal_child(false) // Start collapsed
             .build();

@@ -65,6 +65,8 @@ impl Dispatch<ZwlrGammaControlV1, ()> for AppState {
     }
 }
 
+/// Manages the Wayland background thread and handles sending updated 
+/// color temperatures to the compositor for night mode rendering.
 pub struct NightModeManager {
     sender: Option<mpsc::Sender<f64>>,
     current_temp: std::sync::Arc<std::sync::atomic::AtomicU32>,
@@ -72,6 +74,8 @@ pub struct NightModeManager {
 }
 
 impl NightModeManager {
+    /// Initializes a new NightModeManager, spawning a background thread to lock and 
+    /// manipulate the `wlr_gamma_control_v1` Wayland protocol outputs.
     pub fn new() -> Result<Self, Box<dyn std::error::Error>> {
         let (tx, rx) = mpsc::channel();
         let (init_tx, init_rx) = mpsc::channel();
@@ -99,15 +103,22 @@ impl NightModeManager {
         }
     }
 
+    /// Sends a new color temperature (in Kelvin) down the channel to the Wayland thread.
     pub fn set_temperature(&self, temp: f64) -> Result<(), mpsc::SendError<f64>> {
-        self.current_temp.store(temp as u32, std::sync::atomic::Ordering::Relaxed);
         if let Some(tx) = &self.sender {
-            tx.send(temp)
+            match tx.send(temp) {
+                Ok(_) => {
+                    self.current_temp.store(temp as u32, std::sync::atomic::Ordering::Relaxed);
+                    Ok(())
+                }
+                Err(e) => Err(e),
+            }
         } else {
             Err(mpsc::SendError(temp))
         }
     }
 
+    /// Returns the currently active screen color temperature in Kelvin.
     pub fn get_temperature_kelvin(&self) -> f64 {
         self.current_temp.load(std::sync::atomic::Ordering::Relaxed) as f64
     }
@@ -124,6 +135,8 @@ impl Drop for NightModeManager {
     }
 }
 
+/// Converts a given color temperature in Kelvin to RGB multipliers between 0.0 and 1.0.
+/// Includes clamping to mathematically guard against invalid log functions.
 fn color_temp_to_rgb(temp: f64) -> (f64, f64, f64) {
     // Clamp temperature to a sensible range (1000K to 40000K) to ensure
     // we never take the log of a non-positive number.
@@ -160,6 +173,8 @@ fn color_temp_to_rgb(temp: f64) -> (f64, f64, f64) {
     (red / 255.0, green / 255.0, blue / 255.0)
 }
 
+/// Runs the blocking event queue in the background. Listens for temperature changes 
+/// via MPSC and translates them into live Wayland gamma adjustments.
 fn run_wayland_thread(
     rx: mpsc::Receiver<f64>,
     init_tx: mpsc::Sender<Result<(), Box<dyn std::error::Error + Send + Sync>>>,
@@ -249,6 +264,8 @@ fn run_wayland_thread(
     Ok(())
 }
 
+/// Manually maps RGB mathematical structures into a shared `memfd`,
+/// attaching the resulting `File` bytes directly to the Wayland output gamma controller.
 fn apply_gamma_ramps(state: &AppState, temp: f64) -> Result<Vec<std::fs::File>, Box<dyn std::error::Error>> {
     let (r_mult, g_mult, b_mult) = color_temp_to_rgb(temp);
     let mut new_files = Vec::new();

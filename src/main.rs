@@ -172,7 +172,14 @@ fn main() {
     });
 
     app.run();
-    // Allow pending D-Bus responses and signal handlers to complete before process exit.
-    // TODO: Replace with proper synchronization of async tasks.
-    std::thread::sleep(std::time::Duration::from_millis(150));
+    
+    // Allow pending D-Bus responses and GTK callbacks to complete before process exit.
+    // Iterating the main context processes the teardown events gracefully.
+    let ctx = glib::MainContext::default();
+    let start = std::time::Instant::now();
+    let timeout = std::time::Duration::from_millis(150);
+    
+    while ctx.pending() && start.elapsed() < timeout {
+        ctx.iteration(false);
+    }
 }

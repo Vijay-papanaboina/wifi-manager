@@ -22,10 +22,7 @@ pub const MAX_LIST_HEIGHT: i32 = 280;
 /// Default width of the main panel window
 pub const WINDOW_WIDTH: i32 = 340;
 
-/// Duration of the slide animation in milliseconds
-pub const SLIDE_TRANSITION_MS: u64 = 250;
-
-/// All until the UI handles needed by the app controller.
+/// All UI handles needed by the app controller.
 pub struct PanelWidgets {
     pub window: ApplicationWindow,
     pub wifi_switch: gtk4::Switch,
@@ -153,7 +150,8 @@ pub fn build_window(app: &Application) -> PanelWidgets {
         if !btn.is_active() { // Slider section is collapsing
             let win_ref = window_clone.clone();
             // Wait slightly longer than the slide transition before recalibrating
-            gtk4::glib::timeout_add_local(std::time::Duration::from_millis(SLIDE_TRANSITION_MS + 10), move || {
+            let delay = std::time::Duration::from_millis(controls_panel::SLIDE_TRANSITION_MS as u64 + 10);
+            gtk4::glib::timeout_add_local(delay, move || {
                 win_ref.set_default_size(WINDOW_WIDTH, -1); // Keep width fixed, shrink height
                 gtk4::glib::ControlFlow::Break
             });

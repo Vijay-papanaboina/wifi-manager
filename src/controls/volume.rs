@@ -190,9 +190,5 @@ impl Drop for VolumeManager {
         if let Ok(mut ctx) = self.context.try_borrow_mut() {
             ctx.disconnect();
         }
-        if let Ok(mut ml) = self.mainloop.try_borrow_mut() {
-            use libpulse_binding::mainloop::api::Mainloop as _;
-            ml.quit(libpulse_binding::def::Retval(0));
-        }
     }
 }
