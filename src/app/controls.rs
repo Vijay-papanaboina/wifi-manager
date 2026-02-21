@@ -163,7 +163,9 @@ pub fn setup_controls(widgets: &PanelWidgets) {
             n_scale.connect_value_changed(move |scale| {
                 let val = scale.value();
                 let kelvin = 6500.0 - val;
-                let _ = mgr_clone.set_temperature(kelvin);
+                if let Err(e) = mgr_clone.set_temperature(kelvin) {
+                    log::warn!("Failed to set night mode temperature: {}", e);
+                }
             });
         }
         Err(e) => log::error!("Failed to init NightModeManager: {}", e),

@@ -14,7 +14,15 @@ use gtk4_layer_shell::{Edge, KeyboardMode, Layer, LayerShell};
 use super::{device_list, header, network_list, password_dialog, controls_panel};
 use crate::config::{Config, Position};
 
-/// All the UI handles needed by the app controller.
+/// Minimum pixel height for list boxes (shows ~3 items)
+pub const MIN_LIST_HEIGHT: i32 = 220;
+/// Maximum pixel height for list boxes before scrolling (shows ~4 items)
+pub const MAX_LIST_HEIGHT: i32 = 280;
+
+/// Default width of the main panel window
+pub const WINDOW_WIDTH: i32 = 340;
+
+/// All UI handles needed by the app controller.
 pub struct PanelWidgets {
     pub window: ApplicationWindow,
     pub wifi_switch: gtk4::Switch,
@@ -49,8 +57,7 @@ pub fn build_window(app: &Application) -> PanelWidgets {
     let window = ApplicationWindow::builder()
         .application(app)
         .title("WiFi Manager")
-        .default_width(340)
-        .default_height(480) // Increased height from 400 to 480 to fit the new footer smoothly
+        .default_width(WINDOW_WIDTH)
         .build();
 
     // Initialize layer shell
@@ -89,12 +96,11 @@ pub fn build_window(app: &Application) -> PanelWidgets {
     let wifi_page = GtkBox::new(Orientation::Vertical, 0);
 
     let (scrolled, list_box) = network_list::build_network_list();
-    scrolled.set_vexpand(true); // Expands the scrolling list specifically inside the page
 
     let spinner = gtk4::Spinner::new();
     spinner.set_spinning(true);
     spinner.add_css_class("loading-spinner");
-    spinner.set_size_request(32, 32);
+    spinner.set_size_request(32, MIN_LIST_HEIGHT); // Width 32, Height matches min_content_height of list
     spinner.set_halign(gtk4::Align::Center);
     spinner.set_valign(gtk4::Align::Center);
     spinner.set_margin_top(20);
@@ -114,12 +120,11 @@ pub fn build_window(app: &Application) -> PanelWidgets {
     let bt_page = GtkBox::new(Orientation::Vertical, 0);
 
     let (bt_scrolled, bt_list_box) = device_list::build_device_list();
-    bt_scrolled.set_vexpand(true);
 
     let bt_spinner = gtk4::Spinner::new();
     bt_spinner.set_spinning(true);
     bt_spinner.add_css_class("loading-spinner");
-    bt_spinner.set_size_request(32, 32);
+    bt_spinner.set_size_request(32, MIN_LIST_HEIGHT); // Width 32, Height matches min_content_height of list
     bt_spinner.set_halign(gtk4::Align::Center);
     bt_spinner.set_valign(gtk4::Align::Center);
     bt_spinner.set_margin_top(20);
@@ -138,6 +143,20 @@ pub fn build_window(app: &Application) -> PanelWidgets {
     // ── Controls Panel (Bottom Footer) ─────────────────────────────
     let controls = controls_panel::ControlsPanel::new();
     main_box.append(&controls.container);
+
+    // Smoothly shrink window when controls are hidden
+    let window_clone = window.clone();
+    controls.toggle_button.connect_toggled(move |btn| {
+        if !btn.is_active() { // Slider section is collapsing
+            let win_ref = window_clone.clone();
+            // Wait slightly longer than the slide transition before recalibrating
+            let delay = std::time::Duration::from_millis(controls_panel::SLIDE_TRANSITION_MS as u64 + 10);
+            gtk4::glib::timeout_add_local(delay, move || {
+                win_ref.set_default_size(WINDOW_WIDTH, -1); // Keep width fixed, shrink height
+                gtk4::glib::ControlFlow::Break
+            });
+        }
+    });
 
     // ── Tab switching — only manages content stack page ──────────────
     // Title, status, and switch sync is handled by app controllers

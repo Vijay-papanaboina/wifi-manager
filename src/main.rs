@@ -77,6 +77,24 @@ fn main() {
 
     let app = Application::builder().application_id(APP_ID).build();
 
+    // Catch kill signals to cleanly shut down GTK and drop hardware locks
+    const SIGINT: i32 = 2;
+    const SIGTERM: i32 = 15;
+
+    let app_clone = app.clone();
+    glib::unix_signal_add_local(SIGTERM, move || { // SIGTERM
+        log::info!("Received SIGTERM, gracefully shutting down");
+        app_clone.quit();
+        glib::ControlFlow::Break
+    });
+    
+    let app_clone2 = app.clone();
+    glib::unix_signal_add_local(SIGINT, move || { // SIGINT
+        log::info!("Received SIGINT, gracefully shutting down");
+        app_clone2.quit();
+        glib::ControlFlow::Break
+    });
+
     app.connect_activate(|app| {
         log::info!("Application activated");
 
@@ -154,4 +172,14 @@ fn main() {
     });
 
     app.run();
+    
+    // Allow pending D-Bus responses and GTK callbacks to complete before process exit.
+    // Iterating the main context processes the teardown events gracefully.
+    let ctx = glib::MainContext::default();
+    let start = std::time::Instant::now();
+    let timeout = std::time::Duration::from_millis(150);
+    
+    while ctx.pending() && start.elapsed() < timeout {
+        ctx.iteration(false);
+    }
 }

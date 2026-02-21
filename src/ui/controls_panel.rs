@@ -1,4 +1,7 @@
-use gtk4::{prelude::*, Box, Orientation, Scale, Image};
+use gtk4::{prelude::*, Box, Orientation, Scale, Image, Revealer, ToggleButton, RevealerTransitionType};
+
+/// Duration of the slider reveal animation in milliseconds
+pub const SLIDE_TRANSITION_MS: u32 = 250;
 
 /// The unified panel for Brightness, Volume, and Night Mode controls.
 pub struct ControlsPanel {
@@ -7,6 +10,8 @@ pub struct ControlsPanel {
     pub volume_scale: Scale,
     pub volume_icon: Image,
     pub night_mode_scale: Scale,
+    pub revealer: Revealer,
+    pub toggle_button: ToggleButton,
 }
 
 impl Default for ControlsPanel {
@@ -19,13 +24,47 @@ impl ControlsPanel {
     pub fn new() -> Self {
         let container = Box::builder()
             .orientation(Orientation::Vertical)
-            .spacing(8)
+            .spacing(12)
             .margin_top(8)
-            .margin_bottom(8)
+            .margin_bottom(0) // Let inner elements dictate bottom spacing
             .margin_start(16)
             .margin_end(16)
             .css_classes(["controls-panel"])
             .build();
+            
+        // Toggle Button for collapsing/expanding
+        let toggle_button = ToggleButton::builder()
+            .icon_name("pan-down-symbolic")
+            .halign(gtk4::Align::Center)
+            .has_frame(false)
+            .margin_bottom(8) // Add some breathing room below the button itself
+            .build();
+            
+        // The container holding all the sliders
+        let sliders_box = Box::builder()
+            .orientation(Orientation::Vertical)
+            .spacing(12)
+            .build();
+
+        // Revealer to animate the sliders box
+        let revealer = Revealer::builder()
+            .transition_type(RevealerTransitionType::SlideDown)
+            .transition_duration(SLIDE_TRANSITION_MS)
+            .child(&sliders_box)
+            .reveal_child(false) // Start collapsed
+            .build();
+
+        // ── Connect toggle button to revealer ──
+        let r_clone = revealer.clone();
+        toggle_button.connect_toggled(move |btn| {
+            let active = btn.is_active();
+            r_clone.set_reveal_child(active);
+            if active {
+                btn.set_icon_name("pan-up-symbolic");
+            } else {
+                btn.set_icon_name("pan-down-symbolic");
+            }
+        });
 
         // Brightness Row
         let brightness_row = Box::builder()
@@ -67,7 +106,7 @@ impl ControlsPanel {
             .draw_value(true)
             .value_pos(gtk4::PositionType::Right)
             .tooltip_text("Volume")
-            .adjustment(&gtk4::Adjustment::new(100.0, 0.0, 100.0, 1.0, 10.0, 0.0))
+            .adjustment(&gtk4::Adjustment::new(50.0, 0.0, 100.0, 1.0, 10.0, 0.0))
             .build();
 
         volume_row.append(&volume_icon);
@@ -97,10 +136,14 @@ impl ControlsPanel {
         night_mode_row.append(&night_mode_icon);
         night_mode_row.append(&night_mode_scale);
 
-        // Assemble
-        container.append(&brightness_row);
-        container.append(&volume_row);
-        container.append(&night_mode_row);
+        // Assemble sliders into the inner box
+        sliders_box.append(&brightness_row);
+        sliders_box.append(&volume_row);
+        sliders_box.append(&night_mode_row);
+        
+        // Assemble main container logic
+        container.append(&toggle_button); // Pin button above
+        container.append(&revealer);      // Let sliders drop below
 
         Self {
             container,
@@ -108,6 +151,8 @@ impl ControlsPanel {
             volume_scale,
             volume_icon,
             night_mode_scale,
+            revealer,
+            toggle_button,
         }
     }
 }

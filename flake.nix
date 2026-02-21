@@ -9,7 +9,6 @@
     };
     crane = {
       url = "github:ipetkov/crane";
-      inputs.nixpkgs.follows = "nixpkgs";
     };
     utils.url = "github:numtide/flake-utils";
   };
@@ -76,6 +75,11 @@
       in
       {
         packages.default = wifi-manager;
+
+        apps.default = {
+          type = "app";
+          program = "${wifi-manager}/bin/wifi-manager";
+        };
 
         checks = {
           inherit wifi-manager cargoClippy cargoFmt;
