@@ -10,12 +10,14 @@ use libpulse_binding::proplist::Proplist;
 use libpulse_binding::volume::Volume;
 use libpulse_glib_binding::Mainloop;
 
-#[derive(Clone, Debug)]
+#[derive(Copy, Clone, Debug)]
 pub struct VolumeState {
     pub percent: f64,
     pub muted: bool,
 }
 
+/// Manages the PulseAudio connection. The `mainloop` field must be retained 
+/// to keep the GLib integration alive even if otherwise unused after construction.
 pub struct VolumeManager {
     mainloop: Rc<RefCell<Mainloop>>,
     context: Rc<RefCell<Context>>,
@@ -140,7 +142,7 @@ impl VolumeManager {
                 if let ListResult::Item(sink) = res
                     && let Some(mgr2) = mgr_weak2.upgrade() {
                         let avg_vol = sink.volume.avg();
-                        let percent = (avg_vol.0 as f64 / Volume::NORMAL.0 as f64) * 100.0;
+                        let percent = ((avg_vol.0 as f64 / Volume::NORMAL.0 as f64) * 100.0).min(100.0);
                         let state = VolumeState {
                             percent,
                             muted: sink.mute,
@@ -179,6 +181,18 @@ impl VolumeManager {
             });
         } else {
             log::warn!("Cannot set volume: No default PulseAudio sink available");
+        }
+    }
+}
+
+impl Drop for VolumeManager {
+    fn drop(&mut self) {
+        if let Ok(mut ctx) = self.context.try_borrow_mut() {
+            ctx.disconnect();
+        }
+        if let Ok(mut ml) = self.mainloop.try_borrow_mut() {
+            use libpulse_binding::mainloop::api::Mainloop as _;
+            ml.quit(libpulse_binding::def::Retval(0));
         }
     }
 }

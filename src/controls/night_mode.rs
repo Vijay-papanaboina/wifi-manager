@@ -66,8 +66,9 @@ impl Dispatch<ZwlrGammaControlV1, ()> for AppState {
 }
 
 pub struct NightModeManager {
-    sender: mpsc::Sender<f64>,
+    sender: Option<mpsc::Sender<f64>>,
     current_temp: std::sync::Arc<std::sync::atomic::AtomicU32>,
+    wayland_handle: Option<thread::JoinHandle<()>>,
 }
 
 impl NightModeManager {
@@ -80,7 +81,7 @@ impl NightModeManager {
         let current_temp = std::sync::Arc::new(std::sync::atomic::AtomicU32::new(initial_temp as u32));
         let thread_temp = std::sync::Arc::clone(&current_temp);
 
-        thread::spawn(move || {
+        let handle = thread::spawn(move || {
             if let Err(e) = run_wayland_thread(rx, init_tx, initial_temp, thread_temp) {
                 log::error!("Night mode wayland thread exited: {}", e);
             }
@@ -88,7 +89,11 @@ impl NightModeManager {
 
         // Block on initialization status from Wayland thread (e.g. up to 1 second)
         match init_rx.recv_timeout(std::time::Duration::from_millis(1000)) {
-            Ok(Ok(())) => Ok(NightModeManager { sender: tx, current_temp }),
+            Ok(Ok(())) => Ok(NightModeManager { 
+                sender: Some(tx), 
+                current_temp,
+                wayland_handle: Some(handle),
+            }),
             Ok(Err(e)) => Err(e),
             Err(e) => Err(format!("Night mode wayland thread initialization failed: {}", e).into()),
         }
@@ -96,7 +101,11 @@ impl NightModeManager {
 
     pub fn set_temperature(&self, temp: f64) -> Result<(), mpsc::SendError<f64>> {
         self.current_temp.store(temp as u32, std::sync::atomic::Ordering::Relaxed);
-        self.sender.send(temp)
+        if let Some(tx) = &self.sender {
+            tx.send(temp)
+        } else {
+            Err(mpsc::SendError(temp))
+        }
     }
 
     pub fn get_temperature_kelvin(&self) -> f64 {
@@ -104,8 +113,21 @@ impl NightModeManager {
     }
 }
 
+impl Drop for NightModeManager {
+    fn drop(&mut self) {
+        let _ = self.sender.take();
+        if let Some(handle) = self.wayland_handle.take() {
+            if let Err(e) = handle.join() {
+                log::error!("Failed to join Wayland thread: {:?}", e);
+            }
+        }
+    }
+}
+
 fn color_temp_to_rgb(temp: f64) -> (f64, f64, f64) {
-    let temp = temp / 100.0;
+    // Clamp temperature to a sensible range (1000K to 40000K) to ensure
+    // we never take the log of a non-positive number.
+    let temp = temp.clamp(1000.0, 40000.0) / 100.0;
     
     let red = if temp <= 66.0 {
         255.0
@@ -189,67 +211,20 @@ fn run_wayland_thread(
     
     // Apply initial temperature
     let _ = rx.recv_timeout(std::time::Duration::from_millis(50));
-    let (_r_mult, _g_mult, _b_mult) = color_temp_to_rgb(initial_temp);
-
-    // We store file ownership so FDs aren't closed prematurely if wayland requires them open.
-    // However, set_gamma sends over FD and usually the compositor dup()s or mmap()s it, 
-    // but we can just drop the old files when we replace them.
     let mut _active_files = Vec::new();
+    if let Ok(files) = apply_gamma_ramps(&state, initial_temp) {
+        let _ = event_queue.roundtrip(&mut state);
+        _active_files = files;
+    }
 
     loop {
         // We do a brief dispatch to handle ping/pongs but mainly block on rx with a timeout.
         match rx.recv_timeout(std::time::Duration::from_millis(50)) {
             Ok(temp) => {
-                let (r_mult, g_mult, b_mult) = color_temp_to_rgb(temp);
-                let mut new_files = Vec::new();
-
-                for control in &state.gamma_controls {
-                    let size = *state.gamma_sizes.get(control).unwrap_or(&0) as usize;
-                    if size == 0 { continue; }
-
-                    let bytes_per_ramp = size * 2;
-                    let total_bytes = bytes_per_ramp * 3;
-
-                    let fd = memfd_create("gamma_ramp", MemfdFlags::CLOEXEC)?;
-                    let file = std::fs::File::from(fd);
-                    file.set_len(total_bytes as u64)?;
-
-                    let mut mmap = unsafe { MmapMut::map_mut(&file)? };
-
-                    for i in 0..size {
-                        let progress = if size == 1 {
-                            1.0
-                        } else {
-                            i as f64 / (size - 1) as f64
-                        };
-                        let val = (progress * 65535.0) as u16;
-                        
-                        let r = (val as f64 * r_mult) as u16;
-                        let g = (val as f64 * g_mult) as u16;
-                        let b = (val as f64 * b_mult) as u16;
-
-                        let r_bytes = r.to_ne_bytes();
-                        let g_bytes = g.to_ne_bytes();
-                        let b_bytes = b.to_ne_bytes();
-
-                        mmap[i * 2] = r_bytes[0];
-                        mmap[i * 2 + 1] = r_bytes[1];
-                        
-                        mmap[bytes_per_ramp + i * 2] = g_bytes[0];
-                        mmap[bytes_per_ramp + i * 2 + 1] = g_bytes[1];
-                        
-                        mmap[bytes_per_ramp * 2 + i * 2] = b_bytes[0];
-                        mmap[bytes_per_ramp * 2 + i * 2 + 1] = b_bytes[1];
-                    }
-
-                    mmap.flush()?;
-                    control.set_gamma(file.as_fd());
-                    new_files.push(file);
+                if let Ok(files) = apply_gamma_ramps(&state, temp) {
+                    let _ = event_queue.roundtrip(&mut state);
+                    _active_files = files; // drop old ones
                 }
-                
-                // Flush to compositor
-                let _ = event_queue.roundtrip(&mut state);
-                _active_files = new_files; // drop old ones
             }
             Err(mpsc::RecvTimeoutError::Timeout) => {
                 // Keep connection alive, dispatch any pending events from compositor
@@ -272,4 +247,55 @@ fn run_wayland_thread(
     let _ = event_queue.roundtrip(&mut state);
 
     Ok(())
+}
+
+fn apply_gamma_ramps(state: &AppState, temp: f64) -> Result<Vec<std::fs::File>, Box<dyn std::error::Error>> {
+    let (r_mult, g_mult, b_mult) = color_temp_to_rgb(temp);
+    let mut new_files = Vec::new();
+
+    for control in &state.gamma_controls {
+        let size = *state.gamma_sizes.get(control).unwrap_or(&0) as usize;
+        if size == 0 { continue; }
+
+        let bytes_per_ramp = size * 2;
+        let total_bytes = bytes_per_ramp * 3;
+
+        let fd = memfd_create("gamma_ramp", MemfdFlags::CLOEXEC)?;
+        let file = std::fs::File::from(fd);
+        file.set_len(total_bytes as u64)?;
+
+        let mut mmap = unsafe { MmapMut::map_mut(&file)? };
+
+        for i in 0..size {
+            let progress = if size == 1 {
+                1.0
+            } else {
+                i as f64 / (size - 1) as f64
+            };
+            let val = (progress * 65535.0) as u16;
+            
+            let r = (val as f64 * r_mult) as u16;
+            let g = (val as f64 * g_mult) as u16;
+            let b = (val as f64 * b_mult) as u16;
+
+            let r_bytes = r.to_ne_bytes();
+            let g_bytes = g.to_ne_bytes();
+            let b_bytes = b.to_ne_bytes();
+
+            mmap[i * 2] = r_bytes[0];
+            mmap[i * 2 + 1] = r_bytes[1];
+            
+            mmap[bytes_per_ramp + i * 2] = g_bytes[0];
+            mmap[bytes_per_ramp + i * 2 + 1] = g_bytes[1];
+            
+            mmap[bytes_per_ramp * 2 + i * 2] = b_bytes[0];
+            mmap[bytes_per_ramp * 2 + i * 2 + 1] = b_bytes[1];
+        }
+
+        mmap.flush()?;
+        control.set_gamma(file.as_fd());
+        new_files.push(file);
+    }
+    
+    Ok(new_files)
 }

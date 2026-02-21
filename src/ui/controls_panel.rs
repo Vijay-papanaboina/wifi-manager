@@ -103,7 +103,7 @@ impl ControlsPanel {
             .draw_value(true)
             .value_pos(gtk4::PositionType::Right)
             .tooltip_text("Volume")
-            .adjustment(&gtk4::Adjustment::new(100.0, 0.0, 100.0, 1.0, 10.0, 0.0))
+            .adjustment(&gtk4::Adjustment::new(50.0, 0.0, 100.0, 1.0, 10.0, 0.0))
             .build();
 
         volume_row.append(&volume_icon);
