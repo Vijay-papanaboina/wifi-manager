@@ -1,4 +1,5 @@
-use gtk4::{prelude::*, Box, Orientation, Scale, Image, Revealer, ToggleButton, RevealerTransitionType};
+use gtk4::{prelude::*, Box, Orientation, Scale, Image, Revealer, ToggleButton, RevealerTransitionType, Button};
+use crate::controls::power;
 
 /// Duration of the slider reveal animation in milliseconds
 pub const SLIDE_TRANSITION_MS: u32 = 250;
@@ -36,9 +37,10 @@ impl ControlsPanel {
         let toggle_button = ToggleButton::builder()
             .icon_name("pan-down-symbolic")
             .halign(gtk4::Align::Center)
-            .has_frame(false)
             .margin_bottom(8) // Add some breathing room below the button itself
             .build();
+        toggle_button.add_css_class("flat");
+        toggle_button.add_css_class("circular");
             
         // The container holding all the sliders
         let sliders_box = Box::builder()
@@ -106,7 +108,7 @@ impl ControlsPanel {
             .draw_value(true)
             .value_pos(gtk4::PositionType::Right)
             .tooltip_text("Volume")
-            .adjustment(&gtk4::Adjustment::new(50.0, 0.0, 100.0, 1.0, 10.0, 0.0))
+            .adjustment(&gtk4::Adjustment::new(0.0, 0.0, 100.0, 1.0, 10.0, 0.0))
             .build();
 
         volume_row.append(&volume_icon);
@@ -136,10 +138,45 @@ impl ControlsPanel {
         night_mode_row.append(&night_mode_icon);
         night_mode_row.append(&night_mode_scale);
 
+        // Power Controls Row
+        let power_row = Box::builder()
+            .orientation(Orientation::Horizontal)
+            .spacing(36) // Larger gap between buttons
+            .halign(gtk4::Align::Center)
+            .margin_top(12)
+            .margin_bottom(12) // Gap from the bottom window edge
+            .build();
+
+        let btn_poweroff = Button::builder().icon_name("system-shutdown-symbolic").build();
+        btn_poweroff.add_css_class("flat");
+        btn_poweroff.add_css_class("circular");
+        btn_poweroff.connect_clicked(|_| power::poweroff());
+        
+        let btn_reboot = Button::builder().icon_name("system-reboot-symbolic").build();
+        btn_reboot.add_css_class("flat");
+        btn_reboot.add_css_class("circular");
+        btn_reboot.connect_clicked(|_| power::reboot());
+        
+        let btn_suspend = Button::builder().icon_name("media-playback-pause-symbolic").build();
+        btn_suspend.add_css_class("flat");
+        btn_suspend.add_css_class("circular");
+        btn_suspend.connect_clicked(|_| power::suspend());
+        
+        let btn_logout = Button::builder().icon_name("system-log-out-symbolic").build();
+        btn_logout.add_css_class("flat");
+        btn_logout.add_css_class("circular");
+        btn_logout.connect_clicked(|_| power::logout());
+
+        power_row.append(&btn_logout);
+        power_row.append(&btn_suspend);
+        power_row.append(&btn_reboot);
+        power_row.append(&btn_poweroff);
+
         // Assemble sliders into the inner box
         sliders_box.append(&brightness_row);
         sliders_box.append(&volume_row);
         sliders_box.append(&night_mode_row);
+        sliders_box.append(&power_row);
         
         // Assemble main container logic
         container.append(&toggle_button); // Pin button above
