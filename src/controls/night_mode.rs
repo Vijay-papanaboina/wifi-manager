@@ -262,5 +262,14 @@ fn run_wayland_thread(
         }
     }
 
+    // Explicitly destroy all gamma controls before the thread dies
+    // This hands the lock back to the compositor so we don't permanently brick Night Mode
+    for control in &state.gamma_controls {
+        control.destroy();
+    }
+    
+    // Flush the destroy commands to the Wayland socket immediately
+    let _ = event_queue.roundtrip(&mut state);
+
     Ok(())
 }

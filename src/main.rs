@@ -77,6 +77,21 @@ fn main() {
 
     let app = Application::builder().application_id(APP_ID).build();
 
+    // Catch kill signals to cleanly shut down GTK and drop hardware locks
+    let app_clone = app.clone();
+    glib::unix_signal_add_local(15, move || { // SIGTERM
+        log::info!("Received SIGTERM, gracefully shutting down");
+        app_clone.quit();
+        glib::ControlFlow::Break
+    });
+    
+    let app_clone2 = app.clone();
+    glib::unix_signal_add_local(2, move || { // SIGINT
+        log::info!("Received SIGINT, gracefully shutting down");
+        app_clone2.quit();
+        glib::ControlFlow::Break
+    });
+
     app.connect_activate(|app| {
         log::info!("Application activated");
 
@@ -154,4 +169,5 @@ fn main() {
     });
 
     app.run();
+    std::thread::sleep(std::time::Duration::from_millis(150));
 }
