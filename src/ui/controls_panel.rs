@@ -1,55 +1,45 @@
-use gtk4::{prelude::*, Box, Orientation, Scale, Image, Revealer, ToggleButton, RevealerTransitionType, Button, MessageDialog, MessageType, ButtonsType, ResponseType, Window};
-use std::rc::Rc;
-use std::cell::RefCell;
-use crate::controls::power;
+use gtk4::{prelude::*, glib, Box, Orientation, Scale, Image, Revealer, ToggleButton, RevealerTransitionType, Button, Window};
 
 /// Duration of the slider reveal animation in milliseconds
 pub const SLIDE_TRANSITION_MS: u32 = 250;
 
-#[allow(deprecated)]
-fn show_confirm_dialog(btn: &Button, title: &str, message: &str, action: impl FnOnce() + 'static) {
-    let window = btn.root().and_downcast::<Window>();
-    let dialog = MessageDialog::builder()
+fn show_confirm_dialog(window: &Window, title: &str, message: &str, action: impl FnOnce() + 'static) {
+    let dialog = gtk4::AlertDialog::builder()
         .modal(true)
-        .message_type(MessageType::Question)
-        .buttons(ButtonsType::OkCancel)
-        .text(title)
-        .secondary_text(message)
+        .message(title)
+        .detail(message)
+        .buttons(["Cancel", "Ok"])
+        .cancel_button(0)
+        .default_button(1)
         .build();
-    
-    if let Some(win) = window {
-        dialog.set_transient_for(Some(&win));
-    }
-    
-    let action_cell = Rc::new(RefCell::new(Some(action)));
-    
-    dialog.connect_response(move |dlg, response| {
-        if response == ResponseType::Ok {
-            if let Some(act) = action_cell.borrow_mut().take() {
-                act();
-            }
+
+    let window_clone = window.clone();
+    glib::spawn_future_local(async move {
+        // choose_future returns the index of the clicked button
+        if dialog.choose_future(Some(&window_clone)).await == Ok(1) {
+            action();
         }
-        dlg.destroy();
     });
-    dialog.present();
 }
 
-#[allow(deprecated)]
 fn show_error_dialog(window: Option<&Window>, message: &str) {
-    let dialog = MessageDialog::builder()
+    let dialog = gtk4::AlertDialog::builder()
         .modal(true)
-        .message_type(MessageType::Error)
-        .buttons(ButtonsType::Ok)
-        .text("Error")
-        .secondary_text(message)
+        .message("Error")
+        .detail(message)
+        .buttons(["Ok"])
+        .default_button(0)
         .build();
-    
+
     if let Some(win) = window {
-        dialog.set_transient_for(Some(win));
+        let win_clone = win.clone();
+        glib::spawn_future_local(async move {
+            let _ = dialog.choose_future(Some(&win_clone)).await;
+        });
+    } else {
+        // If no window is available, just print to log (already done by caller usually)
+        log::error!("Error dialog (no window context): {}", message);
     }
-    
-    dialog.connect_response(|dlg, _| dlg.destroy());
-    dialog.present();
 }
 
 /// The unified panel for Brightness, Volume, and Night Mode controls.
@@ -214,13 +204,17 @@ impl ControlsPanel {
             let title = title.to_string();
             let message = message.to_string();
             btn.connect_clicked(move |b| {
-                let win = b.root().and_downcast::<Window>();
+                let Some(win) = b.root().and_downcast::<Window>() else {
+                    log::warn!("Power button '{}' was clicked but has no window attachment", title);
+                    return;
+                };
                 let action = action.clone();
                 let title_clone = title.clone();
-                show_confirm_dialog(b, &title, &message, move || {
+                let win_clone = win.clone();
+                show_confirm_dialog(&win, &title, &message, move || {
                     if let Err(e) = action() {
                         log::error!("{}: {}", title_clone, e);
-                        show_error_dialog(win.as_ref(), &e);
+                        show_error_dialog(Some(&win_clone), &e);
                     }
                 });
             });
@@ -232,7 +226,7 @@ impl ControlsPanel {
             .build();
         btn_poweroff.add_css_class("flat");
         btn_poweroff.add_css_class("circular");
-        connect_power_button(&btn_poweroff, "Power Off", "Are you sure you want to power off the system?", power::poweroff);
+        connect_power_button(&btn_poweroff, "Power Off", "Are you sure you want to power off the system?", crate::controls::power::poweroff);
         
         let btn_reboot = Button::builder()
             .icon_name("system-reboot-symbolic")
@@ -240,7 +234,7 @@ impl ControlsPanel {
             .build();
         btn_reboot.add_css_class("flat");
         btn_reboot.add_css_class("circular");
-        connect_power_button(&btn_reboot, "Reboot", "Are you sure you want to reboot the system?", power::reboot);
+        connect_power_button(&btn_reboot, "Reboot", "Are you sure you want to reboot the system?", crate::controls::power::reboot);
         
         let btn_suspend = Button::builder()
             .icon_name("weather-clear-night-symbolic")
@@ -248,7 +242,7 @@ impl ControlsPanel {
             .build();
         btn_suspend.add_css_class("flat");
         btn_suspend.add_css_class("circular");
-        connect_power_button(&btn_suspend, "Suspend", "Are you sure you want to suspend the system?", power::suspend);
+        connect_power_button(&btn_suspend, "Suspend", "Are you sure you want to suspend the system?", crate::controls::power::suspend);
         
         let btn_logout = Button::builder()
             .icon_name("system-log-out-symbolic")
@@ -256,7 +250,7 @@ impl ControlsPanel {
             .build();
         btn_logout.add_css_class("flat");
         btn_logout.add_css_class("circular");
-        connect_power_button(&btn_logout, "Logout", "Are you sure you want to log out?", power::logout);
+        connect_power_button(&btn_logout, "Logout", "Are you sure you want to log out?", crate::controls::power::logout);
 
         power_row.append(&btn_logout);
         power_row.append(&btn_suspend);
