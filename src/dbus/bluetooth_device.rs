@@ -66,6 +66,7 @@ impl DeviceCategory {
 
 /// A Bluetooth device as presented to the UI.
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct BluetoothDevice {
     /// Bluetooth MAC address (e.g. "AA:BB:CC:DD:EE:FF").
     pub address: String,

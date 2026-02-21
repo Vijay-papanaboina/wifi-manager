@@ -113,6 +113,12 @@ impl BrightnessManager {
             }
         };
         
+        if max == 0 {
+            let msg = "Cannot set brightness: max_brightness is 0";
+            warn!("{}", msg);
+            return Err(msg.into());
+        }
+        
         // Treat NaN/infinity as minimum brightness
         let percent = if percent.is_finite() { percent } else { Self::MIN_BRIGHTNESS_PERCENT };
         // Clamp to minimum so the screen doesn't turn off completely
@@ -126,16 +132,12 @@ impl BrightnessManager {
         self.proxy.set_brightness("backlight", &info.name, target).await?;
         Ok(())
     }
-
-    /// Periodically checks for brightness changes and calls the callback if it changed.
-    /// Returns a glib::SourceId that can be used to stop the watcher via `glib::source_remove()`.
-    /// 
-    /// **Important**: The watcher keeps the `BrightnessManager` alive through its internal `Rc`.
-    /// To release resources, the caller must call `glib::source_remove()` with the returned ID.
     pub fn watch_changes<F>(self: &Rc<Self>, interval_ms: u32, callback: F) -> glib::SourceId
     where
         F: Fn(f64) + 'static,
     {
+        // Ensure reasonable polling interval (at least 100ms)
+        let interval_ms = interval_ms.max(100);
         let mgr = Rc::clone(self);
         let last_val = Rc::new(Cell::new(mgr.get_brightness_percent().unwrap_or(0.0)));
         

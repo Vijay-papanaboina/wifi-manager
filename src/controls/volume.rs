@@ -18,6 +18,7 @@ pub struct VolumeState {
 
 /// Manages the PulseAudio connection. The `mainloop` field must be retained 
 /// to keep the GLib integration alive even if otherwise unused after construction.
+#[allow(dead_code)]
 pub struct VolumeManager {
     mainloop: Rc<RefCell<Mainloop>>,
     context: Rc<RefCell<Context>>,
@@ -174,7 +175,7 @@ impl VolumeManager {
                         let vol = Volume(vol_val);
                         new_vol.set(sink.channel_map.len(), vol);
                         
-                        let ctx2 = mgr.context.borrow_mut();
+                        let ctx2 = mgr.context.borrow();
                         let mut intro2 = ctx2.introspect();
                         intro2.set_sink_volume_by_name(&name_clone, &new_vol, Some(Box::new(|success| {
                             if !success {

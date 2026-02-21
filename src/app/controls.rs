@@ -11,10 +11,10 @@ use crate::ui::window::PanelWidgets;
 const NEUTRAL_TEMP_KELVIN: f64 = 6500.0;
 
 pub fn setup_controls(widgets: &PanelWidgets) {
-    let brightness_scale = widgets.controls.brightness_scale.clone();
-    let volume_scale = widgets.controls.volume_scale.clone();
-    let volume_icon = widgets.controls.volume_icon.clone();
-    let night_mode_scale = widgets.controls.night_mode_scale.clone();
+    let brightness_scale = widgets.controls.brightness_scale().clone();
+    let volume_scale = widgets.controls.volume_scale().clone();
+    let volume_icon = widgets.controls.volume_icon().clone();
+    let night_mode_scale = widgets.controls.night_mode_scale().clone();
 
     // Formatter for brightness and volume
     let percent_formatter = |_: &Scale, val: f64| -> String {
@@ -52,7 +52,7 @@ pub fn setup_controls(widgets: &PanelWidgets) {
                 let is_updating_ui_slider = Rc::clone(&is_updating_ui);
                 let pending_source: Rc<RefCell<Option<glib::SourceId>>> = Rc::new(RefCell::new(None));
                 
-                b_scale.connect_value_changed(move |scale| {
+                b_scale.connect_value_changed(move |scale: &gtk4::Scale| {
                     if is_updating_ui_slider.get() {
                         return;
                     }
@@ -134,7 +134,7 @@ pub fn setup_controls(widgets: &PanelWidgets) {
     ) {
         Ok(manager) => {
             // Listen for UI slider changes -> tell backend
-            let id = volume_scale.connect_value_changed(move |scale| {
+            let id = volume_scale.connect_value_changed(move |scale: &gtk4::Scale| {
                 let val = scale.value();
                 manager.set_volume_percent(val);
             });
@@ -162,7 +162,7 @@ pub fn setup_controls(widgets: &PanelWidgets) {
 
             // Listen for UI slider changes -> tell backend
             let mgr_clone = Rc::clone(&manager);
-            n_scale.connect_value_changed(move |scale| {
+            n_scale.connect_value_changed(move |scale: &gtk4::Scale| {
                 let val = scale.value();
                 let kelvin = NEUTRAL_TEMP_KELVIN - val;
                 if let Err(e) = mgr_clone.set_temperature(kelvin) {

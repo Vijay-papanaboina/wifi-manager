@@ -1,50 +1,45 @@
 use std::process::Command;
 
-pub fn poweroff() -> Result<(), String> {
-    match Command::new("systemctl").arg("poweroff").status() {
+fn run_systemctl(cmd: &str) -> Result<(), String> {
+    match Command::new("systemctl").arg(cmd).status() {
         Ok(status) if status.success() => Ok(()),
-        Ok(status) => Err(format!("systemctl poweroff exited with status: {}", status)),
-        Err(e) => Err(format!("Failed to execute systemctl poweroff: {}", e)),
+        Ok(status) => Err(format!("systemctl {} exited with status: {}", cmd, status)),
+        Err(e) => Err(format!("Failed to execute systemctl {}: {}", cmd, e)),
     }
+}
+
+pub fn poweroff() -> Result<(), String> {
+    run_systemctl("poweroff")
 }
 
 pub fn reboot() -> Result<(), String> {
-    match Command::new("systemctl").arg("reboot").status() {
-        Ok(status) if status.success() => Ok(()),
-        Ok(status) => Err(format!("systemctl reboot exited with status: {}", status)),
-        Err(e) => Err(format!("Failed to execute systemctl reboot: {}", e)),
-    }
+    run_systemctl("reboot")
 }
 
 pub fn suspend() -> Result<(), String> {
-    match Command::new("systemctl").arg("suspend").status() {
+    run_systemctl("suspend")
+}
+
+fn execute_logout_command(program: &str, args: &[&str]) -> Result<(), String> {
+    match Command::new(program).args(args).status() {
         Ok(status) if status.success() => Ok(()),
-        Ok(status) => Err(format!("systemctl suspend exited with status: {}", status)),
-        Err(e) => Err(format!("Failed to execute systemctl suspend: {}", e)),
+        Ok(status) => Err(format!("{} exited with status: {}", program, status)),
+        Err(e) => Err(format!("Failed to execute {}: {}", program, e)),
     }
 }
 
 pub fn logout() -> Result<(), String> {
-    let desktop = std::env::var("XDG_CURRENT_DESKTOP").unwrap_or_default().to_lowercase();
+    let desktop = match std::env::var("XDG_CURRENT_DESKTOP") {
+        Ok(val) => val.to_lowercase(),
+        Err(_) => return Err("XDG_CURRENT_DESKTOP environment variable is not set".to_string()),
+    };
     
     if desktop.contains("hyprland") {
-        match Command::new("hyprctl").args(["dispatch", "exit"]).status() {
-            Ok(status) if status.success() => Ok(()),
-            Ok(status) => Err(format!("hyprctl dispatch exit exited with status: {}", status)),
-            Err(e) => Err(format!("Failed to execute hyprctl dispatch exit: {}", e)),
-        }
+        execute_logout_command("hyprctl", &["dispatch", "exit"])
     } else if desktop.contains("sway") {
-        match Command::new("swaymsg").arg("exit").status() {
-            Ok(status) if status.success() => Ok(()),
-            Ok(status) => Err(format!("swaymsg exit exited with status: {}", status)),
-            Err(e) => Err(format!("Failed to execute swaymsg exit: {}", e)),
-        }
+        execute_logout_command("swaymsg", &["exit"])
     } else if desktop.contains("river") {
-        match Command::new("riverctl").arg("exit").status() {
-            Ok(status) if status.success() => Ok(()),
-            Ok(status) => Err(format!("riverctl exit exited with status: {}", status)),
-            Err(e) => Err(format!("Failed to execute riverctl exit: {}", e)),
-        }
+        execute_logout_command("riverctl", &["exit"])
     } else {
         Err(format!("Unsupported or unknown Wayland compositor for logout: {}", desktop))
     }

@@ -65,6 +65,9 @@ impl Dispatch<ZwlrGammaControlV1, ()> for AppState {
     }
 }
 
+/// Default timeout for Wayland thread initialization.
+pub const NIGHT_MODE_INIT_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(1000);
+
 /// Manages the Wayland background thread and handles sending updated 
 /// color temperatures to the compositor for night mode rendering.
 pub struct NightModeManager {
@@ -91,8 +94,8 @@ impl NightModeManager {
             }
         });
 
-        // Block on initialization status from Wayland thread (e.g. up to 1 second)
-        match init_rx.recv_timeout(std::time::Duration::from_millis(1000)) {
+        // Block on initialization status from Wayland thread
+        match init_rx.recv_timeout(NIGHT_MODE_INIT_TIMEOUT) {
             Ok(Ok(())) => Ok(NightModeManager { 
                 sender: Some(tx), 
                 current_temp,
@@ -107,10 +110,7 @@ impl NightModeManager {
     pub fn set_temperature(&self, temp: f64) -> Result<(), mpsc::SendError<f64>> {
         if let Some(tx) = &self.sender {
             match tx.send(temp) {
-                Ok(_) => {
-                    self.current_temp.store(temp as u32, std::sync::atomic::Ordering::Relaxed);
-                    Ok(())
-                }
+                Ok(_) => Ok(()),
                 Err(e) => Err(e),
             }
         } else {
@@ -119,6 +119,8 @@ impl NightModeManager {
     }
 
     /// Returns the currently active screen color temperature in Kelvin.
+    /// Note: This returns the value from the shared `current_temp` atomic field, which 
+    /// reflects the last successfully applied screen color temperature by the Wayland thread.
     pub fn get_temperature_kelvin(&self) -> f64 {
         self.current_temp.load(std::sync::atomic::Ordering::Relaxed) as f64
     }
@@ -193,7 +195,7 @@ fn run_wayland_thread(
     let mut event_queue = conn.new_event_queue();
     let qh = event_queue.handle();
 
-    let registry = display.get_registry(&qh, ());
+    let _registry = display.get_registry(&qh, ());
     let mut state = AppState::default();
 
     // Roundtrip to get globals
@@ -230,11 +232,12 @@ fn run_wayland_thread(
         Err(_) => initial_temp,
     };
     
-    let mut _active_files = Vec::new();
+    // Keep File Descriptors for the applied gamma ramps alive for the compositor's lifetime
+    let mut _active_gamma_files = Vec::new();
     match apply_gamma_ramps(&state, applied_temp) {
         Ok(files) => {
             let _ = event_queue.roundtrip(&mut state);
-            _active_files = files;
+            _active_gamma_files = files;
             current_temp.store(applied_temp.round() as u32, std::sync::atomic::Ordering::SeqCst);
         }
         Err(e) => {
@@ -249,7 +252,7 @@ fn run_wayland_thread(
                 match apply_gamma_ramps(&state, temp) {
                     Ok(files) => {
                         let _ = event_queue.roundtrip(&mut state);
-                        _active_files = files;
+                        _active_gamma_files = files;
                         current_temp.store(temp.round() as u32, std::sync::atomic::Ordering::SeqCst);
                     }
                     Err(e) => {

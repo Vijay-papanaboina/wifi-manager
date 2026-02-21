@@ -6,6 +6,7 @@ use crate::controls::power;
 /// Duration of the slider reveal animation in milliseconds
 pub const SLIDE_TRANSITION_MS: u32 = 250;
 
+#[allow(deprecated)]
 fn show_confirm_dialog(btn: &Button, title: &str, message: &str, action: impl FnOnce() + 'static) {
     let window = btn.root().and_downcast::<Window>();
     let dialog = MessageDialog::builder()
@@ -33,6 +34,7 @@ fn show_confirm_dialog(btn: &Button, title: &str, message: &str, action: impl Fn
     dialog.present();
 }
 
+#[allow(deprecated)]
 fn show_error_dialog(window: Option<&Window>, message: &str) {
     let dialog = MessageDialog::builder()
         .modal(true)
@@ -51,14 +53,15 @@ fn show_error_dialog(window: Option<&Window>, message: &str) {
 }
 
 /// The unified panel for Brightness, Volume, and Night Mode controls.
+#[allow(dead_code)]
 pub struct ControlsPanel {
-    pub container: Box,
-    pub brightness_scale: Scale,
-    pub volume_scale: Scale,
-    pub volume_icon: Image,
-    pub night_mode_scale: Scale,
-    pub revealer: Revealer,
-    pub toggle_button: ToggleButton,
+    container: Box,
+    brightness_scale: Scale,
+    volume_scale: Scale,
+    volume_icon: Image,
+    night_mode_scale: Scale,
+    revealer: Revealer,
+    toggle_button: ToggleButton,
 }
 
 impl Default for ControlsPanel {
@@ -68,6 +71,14 @@ impl Default for ControlsPanel {
 }
 
 impl ControlsPanel {
+    pub fn container(&self) -> &Box { &self.container }
+    pub fn brightness_scale(&self) -> &Scale { &self.brightness_scale }
+    pub fn volume_scale(&self) -> &Scale { &self.volume_scale }
+    pub fn volume_icon(&self) -> &Image { &self.volume_icon }
+    pub fn night_mode_scale(&self) -> &Scale { &self.night_mode_scale }
+    pub fn revealer(&self) -> &Revealer { &self.revealer }
+    pub fn toggle_button(&self) -> &ToggleButton { &self.toggle_button }
+
     pub fn new() -> Self {
         let container = Box::builder()
             .orientation(Orientation::Vertical)
@@ -84,6 +95,7 @@ impl ControlsPanel {
             .icon_name("pan-down-symbolic")
             .halign(gtk4::Align::Center)
             .margin_bottom(8) // Add some breathing room below the button itself
+            .tooltip_text("Show/Hide Controls")
             .build();
         toggle_button.add_css_class("flat");
         toggle_button.add_css_class("circular");
@@ -193,21 +205,34 @@ impl ControlsPanel {
             .margin_bottom(12) // Gap from the bottom window edge
             .build();
 
+        fn connect_power_button(
+            btn: &Button,
+            title: &str,
+            message: &str,
+            action: impl Fn() -> Result<(), String> + Clone + 'static,
+        ) {
+            let title = title.to_string();
+            let message = message.to_string();
+            btn.connect_clicked(move |b| {
+                let win = b.root().and_downcast::<Window>();
+                let action = action.clone();
+                let title_clone = title.clone();
+                show_confirm_dialog(b, &title, &message, move || {
+                    if let Err(e) = action() {
+                        log::error!("{}: {}", title_clone, e);
+                        show_error_dialog(win.as_ref(), &e);
+                    }
+                });
+            });
+        }
+
         let btn_poweroff = Button::builder()
             .icon_name("system-shutdown-symbolic")
             .tooltip_text("Power Off")
             .build();
         btn_poweroff.add_css_class("flat");
         btn_poweroff.add_css_class("circular");
-        btn_poweroff.connect_clicked(|btn| {
-            let win = btn.root().and_downcast::<Window>();
-            show_confirm_dialog(btn, "Power Off", "Are you sure you want to power off the system?", move || {
-                if let Err(e) = power::poweroff() {
-                    log::error!("{}", e);
-                    show_error_dialog(win.as_ref(), &e);
-                }
-            });
-        });
+        connect_power_button(&btn_poweroff, "Power Off", "Are you sure you want to power off the system?", power::poweroff);
         
         let btn_reboot = Button::builder()
             .icon_name("system-reboot-symbolic")
@@ -215,15 +240,7 @@ impl ControlsPanel {
             .build();
         btn_reboot.add_css_class("flat");
         btn_reboot.add_css_class("circular");
-        btn_reboot.connect_clicked(|btn| {
-            let win = btn.root().and_downcast::<Window>();
-            show_confirm_dialog(btn, "Reboot", "Are you sure you want to reboot the system?", move || {
-                if let Err(e) = power::reboot() {
-                    log::error!("{}", e);
-                    show_error_dialog(win.as_ref(), &e);
-                }
-            });
-        });
+        connect_power_button(&btn_reboot, "Reboot", "Are you sure you want to reboot the system?", power::reboot);
         
         let btn_suspend = Button::builder()
             .icon_name("weather-clear-night-symbolic")
@@ -231,15 +248,7 @@ impl ControlsPanel {
             .build();
         btn_suspend.add_css_class("flat");
         btn_suspend.add_css_class("circular");
-        btn_suspend.connect_clicked(|btn| {
-            let win = btn.root().and_downcast::<Window>();
-            show_confirm_dialog(btn, "Suspend", "Are you sure you want to suspend the system?", move || {
-                if let Err(e) = power::suspend() {
-                    log::error!("{}", e);
-                    show_error_dialog(win.as_ref(), &e);
-                }
-            });
-        });
+        connect_power_button(&btn_suspend, "Suspend", "Are you sure you want to suspend the system?", power::suspend);
         
         let btn_logout = Button::builder()
             .icon_name("system-log-out-symbolic")
@@ -247,15 +256,7 @@ impl ControlsPanel {
             .build();
         btn_logout.add_css_class("flat");
         btn_logout.add_css_class("circular");
-        btn_logout.connect_clicked(|btn| {
-            let win = btn.root().and_downcast::<Window>();
-            show_confirm_dialog(btn, "Logout", "Are you sure you want to log out?", move || {
-                if let Err(e) = power::logout() {
-                    log::error!("{}", e);
-                    show_error_dialog(win.as_ref(), &e);
-                }
-            });
-        });
+        connect_power_button(&btn_logout, "Logout", "Are you sure you want to log out?", power::logout);
 
         power_row.append(&btn_logout);
         power_row.append(&btn_suspend);
