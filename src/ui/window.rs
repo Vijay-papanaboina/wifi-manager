@@ -141,6 +141,19 @@ pub fn build_window(app: &Application) -> PanelWidgets {
     let controls = controls_panel::ControlsPanel::new();
     main_box.append(&controls.container);
 
+    // Smoothly shrink window when controls are hidden
+    let window_clone = window.clone();
+    controls.toggle_button.connect_toggled(move |btn| {
+        if !btn.is_active() { // Slider section is collapsing
+            let win_ref = window_clone.clone();
+            // Wait slightly longer than the 250ms slide transition before recalibrating
+            gtk4::glib::timeout_add_local(std::time::Duration::from_millis(260), move || {
+                win_ref.set_default_size(340, -1); // Keep width fixed at 340, shrink height
+                gtk4::glib::ControlFlow::Break
+            });
+        }
+    });
+
     // ── Tab switching — only manages content stack page ──────────────
     // Title, status, and switch sync is handled by app controllers
     // which can do async D-Bus calls to query actual power state.
