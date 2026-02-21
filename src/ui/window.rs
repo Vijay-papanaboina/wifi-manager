@@ -14,6 +14,11 @@ use gtk4_layer_shell::{Edge, KeyboardMode, Layer, LayerShell};
 use super::{device_list, header, network_list, password_dialog, controls_panel};
 use crate::config::{Config, Position};
 
+/// Minimum pixel height for list boxes (shows ~3 items)
+pub const MIN_LIST_HEIGHT: i32 = 220;
+/// Maximum pixel height for list boxes before scrolling (shows ~4 items)
+pub const MAX_LIST_HEIGHT: i32 = 280;
+
 /// All the UI handles needed by the app controller.
 pub struct PanelWidgets {
     pub window: ApplicationWindow,
@@ -50,7 +55,6 @@ pub fn build_window(app: &Application) -> PanelWidgets {
         .application(app)
         .title("WiFi Manager")
         .default_width(340)
-        .default_height(480) // Increased height from 400 to 480 to fit the new footer smoothly
         .build();
 
     // Initialize layer shell
@@ -89,12 +93,11 @@ pub fn build_window(app: &Application) -> PanelWidgets {
     let wifi_page = GtkBox::new(Orientation::Vertical, 0);
 
     let (scrolled, list_box) = network_list::build_network_list();
-    scrolled.set_vexpand(true); // Expands the scrolling list specifically inside the page
 
     let spinner = gtk4::Spinner::new();
     spinner.set_spinning(true);
     spinner.add_css_class("loading-spinner");
-    spinner.set_size_request(32, 32);
+    spinner.set_size_request(32, MIN_LIST_HEIGHT); // Width 32, Height matches min_content_height of list
     spinner.set_halign(gtk4::Align::Center);
     spinner.set_valign(gtk4::Align::Center);
     spinner.set_margin_top(20);
@@ -114,12 +117,11 @@ pub fn build_window(app: &Application) -> PanelWidgets {
     let bt_page = GtkBox::new(Orientation::Vertical, 0);
 
     let (bt_scrolled, bt_list_box) = device_list::build_device_list();
-    bt_scrolled.set_vexpand(true);
 
     let bt_spinner = gtk4::Spinner::new();
     bt_spinner.set_spinning(true);
     bt_spinner.add_css_class("loading-spinner");
-    bt_spinner.set_size_request(32, 32);
+    bt_spinner.set_size_request(32, MIN_LIST_HEIGHT); // Width 32, Height matches min_content_height of list
     bt_spinner.set_halign(gtk4::Align::Center);
     bt_spinner.set_valign(gtk4::Align::Center);
     bt_spinner.set_margin_top(20);

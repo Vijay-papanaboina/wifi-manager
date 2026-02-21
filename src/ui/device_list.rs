@@ -2,6 +2,7 @@
 
 use gtk4::prelude::*;
 use gtk4::{Label, ListBox, PolicyType, ScrolledWindow, SelectionMode};
+use crate::ui::window::{MIN_LIST_HEIGHT, MAX_LIST_HEIGHT};
 
 use super::device_row;
 use crate::dbus::bluetooth_device::BluetoothDevice;
@@ -19,9 +20,9 @@ pub fn build_device_list() -> (ScrolledWindow, ListBox) {
     let scrolled = ScrolledWindow::new();
     scrolled.add_css_class("device-scroll");
     scrolled.set_policy(PolicyType::Never, PolicyType::Automatic);
-    scrolled.set_vexpand(true);
-    scrolled.set_min_content_height(100);
-    scrolled.set_max_content_height(420);
+    scrolled.set_has_frame(false);
+    scrolled.set_min_content_height(MIN_LIST_HEIGHT);
+    scrolled.set_max_content_height(MAX_LIST_HEIGHT);
     scrolled.set_child(Some(&list_box));
 
     (scrolled, list_box)
