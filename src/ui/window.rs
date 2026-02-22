@@ -23,6 +23,7 @@ pub const MAX_LIST_HEIGHT: i32 = 280;
 pub const WINDOW_WIDTH: i32 = 340;
 
 /// All UI handles needed by the app controller.
+#[allow(dead_code)]
 pub struct PanelWidgets {
     pub window: ApplicationWindow,
     pub wifi_switch: gtk4::Switch,
@@ -142,17 +143,21 @@ pub fn build_window(app: &Application) -> PanelWidgets {
 
     // ── Controls Panel (Bottom Footer) ─────────────────────────────
     let controls = controls_panel::ControlsPanel::new();
-    main_box.append(&controls.container);
+    main_box.append(controls.container());
 
     // Smoothly shrink window when controls are hidden
     let window_clone = window.clone();
-    controls.toggle_button.connect_toggled(move |btn| {
+    controls.toggle_button().connect_toggled(move |btn: &gtk4::ToggleButton| {
         if !btn.is_active() { // Slider section is collapsing
             let win_ref = window_clone.clone();
+            let btn_ref = btn.clone();
             // Wait slightly longer than the slide transition before recalibrating
             let delay = std::time::Duration::from_millis(controls_panel::SLIDE_TRANSITION_MS as u64 + 10);
             gtk4::glib::timeout_add_local(delay, move || {
-                win_ref.set_default_size(WINDOW_WIDTH, -1); // Keep width fixed, shrink height
+                // Only resize if still collapsed
+                if !btn_ref.is_active() {
+                    win_ref.set_default_size(WINDOW_WIDTH, -1); // Keep width fixed, shrink height
+                }
                 gtk4::glib::ControlFlow::Break
             });
         }
