@@ -94,7 +94,23 @@ impl BluetoothManager {
         }
     }
 
-    /// Stop an ongoing discovery session.
+    /// Stops the adapter's active discovery session.
+    ///
+    /// If discovery is not active or cannot be stopped due to adapter state (for example `NotReady` or
+    /// `NotAuthorized`), the call is treated as successful and returns `Ok(())`. Other errors are
+    /// returned as `Err`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use futures::executor::block_on;
+    /// # async fn run() -> zbus::Result<()> {
+    /// let manager = BluetoothManager::new().await.unwrap();
+    /// manager.stop_discovery().await?;
+    /// # Ok(())
+    /// # }
+    /// # fn main() { let _ = block_on(run()); }
+    /// ```
     pub async fn stop_discovery(&self) -> zbus::Result<()> {
         let adapter = self.adapter_proxy().await?;
         // Ignore "not discovering" errors
@@ -113,6 +129,27 @@ impl BluetoothManager {
                 }
             }
         }
+    }
+
+    /// Returns whether the Bluetooth adapter is currently performing device discovery.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use your_crate::dbus::BluetoothManager;
+    /// # async fn example() -> zbus::Result<()> {
+    /// let manager = BluetoothManager::new().await.unwrap();
+    /// let discovering = manager.is_discovering().await?;
+    /// println!("Adapter discovering: {}", discovering);
+    /// # Ok(()) }
+    /// ```
+    ///
+    /// # Returns
+    ///
+    /// `true` if the adapter is currently discovering devices, `false` otherwise.
+    pub async fn is_discovering(&self) -> zbus::Result<bool> {
+        let adapter = self.adapter_proxy().await?;
+        adapter.discovering().await
     }
 
     // ========================================================================

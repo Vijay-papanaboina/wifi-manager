@@ -7,10 +7,25 @@ use crate::ui::window::{MIN_LIST_HEIGHT, MAX_LIST_HEIGHT};
 use super::network_row;
 use crate::dbus::access_point::Network;
 
-/// Build a scrollable network list.
+/// Create a ScrolledWindow containing a preconfigured ListBox for showing available networks.
 ///
-/// Returns `(scrolled_window, list_box)` — the list_box is needed to populate
-/// rows and handle selection events.
+/// The returned ListBox is ready to receive rows and handle user interaction; the ScrolledWindow
+/// encloses it and constrains its displayed height.
+///
+/// # Returns
+///
+/// `(ScrolledWindow, ListBox)` — the scrolled window and its contained list box.
+///
+/// # Examples
+///
+/// ```
+/// let (scrolled, list_box) = build_network_list();
+/// // ListBox should be non-selectable and activate on single click
+/// assert_eq!(list_box.selection_mode(), SelectionMode::None);
+/// assert!(list_box.activate_on_single_click());
+/// // ScrolledWindow should contain the list box as its child
+/// assert!(scrolled.child().is_some());
+/// ```
 pub fn build_network_list() -> (ScrolledWindow, ListBox) {
     let list_box = ListBox::new();
     list_box.add_css_class("network-list");
@@ -21,6 +36,7 @@ pub fn build_network_list() -> (ScrolledWindow, ListBox) {
     scrolled.add_css_class("network-scroll");
     scrolled.set_policy(PolicyType::Never, PolicyType::Automatic);
     scrolled.set_has_frame(false);
+    scrolled.set_propagate_natural_height(true);
     scrolled.set_min_content_height(MIN_LIST_HEIGHT);
     scrolled.set_max_content_height(MAX_LIST_HEIGHT);
     scrolled.set_child(Some(&list_box));

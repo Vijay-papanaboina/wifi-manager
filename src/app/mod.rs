@@ -17,6 +17,7 @@ mod shortcuts;
 use std::cell::RefCell;
 use std::rc::Rc;
 
+use gtk4::glib;
 use gtk4::prelude::*;
 
 use crate::dbus::access_point::Network;
@@ -37,10 +38,38 @@ struct AppState {
     bluetooth: Option<BluetoothManager>,
     /// Bluetooth device list — refreshed on BT scan.
     bt_devices: Vec<BluetoothDevice>,
+    /// Whether a Bluetooth scan is currently running.
+    bt_scan_in_progress: bool,
+    /// Periodic auto-scan timer for Bluetooth (when BT tab is active).
+    bt_auto_scan_source: Option<glib::SourceId>,
+    /// Periodic refresh timer for Bluetooth list (when BT tab is active).
+    bt_live_refresh_source: Option<glib::SourceId>,
+    /// Whether Bluetooth auto-scan loop is active.
+    bt_auto_scan_active: bool,
+    /// Whether a Bluetooth device menu is open (avoid refresh to prevent popover closing).
+    bt_menu_open: bool,
+    /// Whether a Wi-Fi scan is currently running.
+    wifi_scan_in_progress: bool,
+    /// Periodic auto-scan timer for Wi-Fi (when Wi-Fi tab is active).
+    wifi_auto_scan_source: Option<glib::SourceId>,
 }
 
-/// Set up all event handlers, kick off the initial scan, start live updates,
-/// and wire scan-on-show polling.
+/// Initialize application UI behavior and start initial background activity.
+///
+/// Creates the shared application state, registers all UI event handlers and shortcuts,
+/// wires scan-on-show polling, and starts the initial Wi‑Fi auto-scan when the Wi‑Fi tab is active.
+///
+/// # Examples
+///
+/// ```no_run
+/// use std::sync::{Arc, atomic::AtomicBool};
+/// // Assume `widgets`, `wifi_manager`, and `panel_state` are constructed elsewhere.
+/// let widgets: PanelWidgets = /* ... */;
+/// let wifi_manager: WifiManager = /* ... */;
+/// let scan_requested = Arc::new(AtomicBool::new(false));
+/// let panel_state: crate::daemon::PanelState = /* ... */;
+/// setup(&widgets, wifi_manager, scan_requested, panel_state);
+/// ```
 pub fn setup(
     widgets: &PanelWidgets,
     wifi: WifiManager,
@@ -53,9 +82,15 @@ pub fn setup(
         selected_index: None,
         bluetooth: None,
         bt_devices: Vec::new(),
+        bt_scan_in_progress: false,
+        bt_auto_scan_source: None,
+        bt_live_refresh_source: None,
+        bt_auto_scan_active: false,
+        bt_menu_open: false,
+        wifi_scan_in_progress: false,
+        wifi_auto_scan_source: None,
     }));
 
-    scanning::setup_scan_button(widgets, Rc::clone(&state));
     connection::setup_wifi_toggle(widgets, Rc::clone(&state));
     connection::setup_network_click(widgets, Rc::clone(&state));
     connection::setup_password_actions(widgets, Rc::clone(&state));
@@ -63,8 +98,16 @@ pub fn setup(
     scanning::setup_scan_on_show(widgets, Rc::clone(&state), scan_requested);
     bluetooth::setup_bluetooth(widgets, Rc::clone(&state));
     bt_live_updates::setup_bt_live_updates(widgets, Rc::clone(&state));
-    setup_bt_scan_button(widgets, Rc::clone(&state));
+    setup_scan_button_dispatch(widgets, Rc::clone(&state));
     setup_wifi_tab_sync(widgets, Rc::clone(&state));
+    if widgets.wifi_tab.is_active() {
+        scanning::start_wifi_auto_scan(
+            Rc::clone(&state),
+            widgets.wifi_tab.clone(),
+            widgets.network_list_box.clone(),
+            widgets.status_label.clone(),
+        );
+    }
     let reload_requested = panel_state.reload_requested.clone();
     shortcuts::setup_escape_key(widgets, panel_state);
     shortcuts::setup_reload_on_request(widgets, Rc::clone(&state), reload_requested);
@@ -77,7 +120,24 @@ fn get_wifi(state: &Rc<RefCell<AppState>>) -> WifiManager {
     state.borrow().wifi.clone()
 }
 
-/// Refresh the network list from D-Bus and update the UI.
+/// Refreshes the stored network list and updates the UI to reflect current connections.
+///
+/// This function queries the Wi‑Fi manager for available networks, updates the status label
+/// to show the SSID of the connected network or "Not connected", repopulates the provided
+/// list box with the retrieved networks using the current configuration, and stores the
+/// fetched network list in the shared application state. If the query fails, the status
+/// label is set to "Failed to load networks".
+///
+/// # Examples
+///
+/// ```no_run
+/// # use std::rc::Rc;
+/// # use std::cell::RefCell;
+/// # async fn example() {
+/// // `state`, `list_box`, and `status` should be initialized GTK objects in real usage.
+/// refresh_list(&state, &list_box, &status).await;
+/// # }
+/// ```
 async fn refresh_list(
     state: &Rc<RefCell<AppState>>,
     list_box: &gtk4::ListBox,
@@ -107,52 +167,74 @@ async fn refresh_list(
     }
 }
 
-/// Wire the scan button to also trigger BT discovery when on BT tab.
-fn setup_bt_scan_button(widgets: &PanelWidgets, state: Rc<RefCell<AppState>>) {
+/// Route the scan button click to the active tab's scan handler.
+///
+/// Wires the panel's scan button so that a click invokes the Bluetooth manual scan
+/// when the Bluetooth tab is active, otherwise invokes the Wi‑Fi manual scan. The
+/// function captures and forwards the relevant UI widgets and shared AppState to
+/// the appropriate handler.
+///
+/// # Examples
+///
+/// ```
+/// // Given `widgets: PanelWidgets` and `state: Rc<RefCell<AppState>>` already created:
+/// setup_scan_button_dispatch(&widgets, state.clone());
+/// // Clicking the scan button will now dispatch to the correct scan flow based on the active tab.
+/// ```
+fn setup_scan_button_dispatch(widgets: &PanelWidgets, state: Rc<RefCell<AppState>>) {
+    let scan_btn = widgets.scan_button.clone();
     let bt_tab = widgets.bt_tab.clone();
     let bt_list_box = widgets.bt_list_box.clone();
     let bt_spinner = widgets.bt_spinner.clone();
     let bt_scroll = widgets.bt_scroll.clone();
+    let wifi_list_box = widgets.network_list_box.clone();
+    let wifi_spinner = widgets.spinner.clone();
+    let wifi_scroll = widgets.network_scroll.clone();
     let status = widgets.status_label.clone();
-    let scan_btn = widgets.scan_button.clone();
 
-    // We prepend a handler that checks if BT tab is active.
-    // If so, it does BT scan instead of WiFi scan.
-    scan_btn.connect_clicked(move |btn| {
-        if !bt_tab.is_active() {
-            return; // Let the WiFi scan handler deal with it
+    let scan_btn_cb = scan_btn.clone();
+    scan_btn.connect_clicked(move |_btn| {
+        if bt_tab.is_active() {
+            bluetooth::run_manual_scan(
+                Rc::clone(&state),
+                bt_tab.clone(),
+                bt_list_box.clone(),
+                status.clone(),
+                scan_btn_cb.clone(),
+                bt_spinner.clone(),
+                bt_scroll.clone(),
+            );
+        } else {
+            scanning::run_manual_scan(
+                Rc::clone(&state),
+                wifi_list_box.clone(),
+                status.clone(),
+                scan_btn_cb.clone(),
+                wifi_spinner.clone(),
+                wifi_scroll.clone(),
+            );
         }
-
-        btn.set_sensitive(false);
-        let state = Rc::clone(&state);
-        let bt_list_box = bt_list_box.clone();
-        let bt_spinner = bt_spinner.clone();
-        let bt_scroll = bt_scroll.clone();
-        let status = status.clone();
-        let btn = btn.clone();
-
-        bt_spinner.set_visible(true);
-        bt_spinner.set_spinning(true);
-        bt_scroll.set_visible(false);
-
-        gtk4::glib::spawn_future_local(async move {
-            if let Some(bt) = state.borrow().bluetooth.clone() {
-                if let Err(e) = bt.start_discovery().await {
-                    log::warn!("BT scan failed: {e}");
-                }
-                gtk4::glib::timeout_future(std::time::Duration::from_millis(2000)).await;
-                bluetooth::refresh_bt_list(&state, &bt_list_box, &status).await;
-            }
-
-            bt_spinner.set_spinning(false);
-            bt_spinner.set_visible(false);
-            bt_scroll.set_visible(true);
-            btn.set_sensitive(true);
-        });
     });
 }
 
-/// Sync the toggle switch to WiFi power state when WiFi tab is activated.
+/// Synchronize Wi‑Fi UI and scanning behavior when the Wi‑Fi tab is toggled.
+///
+/// When the Wi‑Fi tab becomes active this updates the tab title and tooltips,
+/// queries the hardware Wi‑Fi power state and sets the UI switch accordingly,
+/// refreshes the displayed network list, and starts the periodic Wi‑Fi auto‑scan.
+/// When the tab is deactivated it stops any ongoing Wi‑Fi auto‑scan.
+///
+/// # Parameters
+///
+/// - `widgets`: UI widgets for the panel (Wi‑Fi tab, switch, labels, list, scan button).
+/// - `state`: shared application state containing the Wi‑Fi manager and scan state.
+///
+/// # Examples
+///
+/// ```no_run
+/// // `widgets` and `state` would be created during application setup.
+/// setup_wifi_tab_sync(&widgets, Rc::new(RefCell::new(app_state)));
+/// ```
 fn setup_wifi_tab_sync(widgets: &PanelWidgets, state: Rc<RefCell<AppState>>) {
     let wifi_tab = widgets.wifi_tab.clone();
     let switch = widgets.wifi_switch.clone();
@@ -163,6 +245,7 @@ fn setup_wifi_tab_sync(widgets: &PanelWidgets, state: Rc<RefCell<AppState>>) {
 
     wifi_tab.connect_toggled(move |btn| {
         if !btn.is_active() {
+            scanning::stop_wifi_auto_scan(&state);
             return;
         }
 
@@ -170,13 +253,15 @@ fn setup_wifi_tab_sync(widgets: &PanelWidgets, state: Rc<RefCell<AppState>>) {
         switch.set_tooltip_text(Some("Enable/Disable Wi-Fi"));
         scan_btn.set_tooltip_text(Some("Scan for networks"));
 
-        let state = Rc::clone(&state);
+        let state_for_refresh = Rc::clone(&state);
         let switch = switch.clone();
         let status = status.clone();
         let list_box = list_box.clone();
+        let status_for_refresh = status.clone();
+        let list_box_for_refresh = list_box.clone();
 
         gtk4::glib::spawn_future_local(async move {
-            let wifi = get_wifi(&state);
+            let wifi = get_wifi(&state_for_refresh);
 
             // Sync switch to actual WiFi power state
             match wifi.is_wifi_enabled().await {
@@ -185,7 +270,14 @@ fn setup_wifi_tab_sync(widgets: &PanelWidgets, state: Rc<RefCell<AppState>>) {
             }
 
             // Refresh network list
-            refresh_list(&state, &list_box, &status).await;
+            refresh_list(&state_for_refresh, &list_box_for_refresh, &status_for_refresh).await;
         });
+
+        scanning::start_wifi_auto_scan(
+            Rc::clone(&state),
+            btn.clone(),
+            list_box.clone(),
+            status.clone(),
+        );
     });
 }

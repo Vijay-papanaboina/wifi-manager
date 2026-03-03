@@ -14,13 +14,16 @@ use crate::ui::window::PanelWidgets;
 use super::bluetooth::refresh_bt_list;
 use super::AppState;
 
-/// Subscribe to BlueZ ObjectManager signals for live BT updates.
+/// Subscribes to BlueZ ObjectManager InterfacesAdded and InterfacesRemoved signals to keep the Bluetooth device list updated when the Bluetooth tab is active.
 ///
-/// Watches `InterfacesAdded` — fires when a new device is discovered or
-/// a device's interface changes (e.g. Connected property change).
+/// Waits for a Bluetooth manager to become available, subscribes to the ObjectManager signals, and triggers a debounced (300 ms) refresh of the BT list whenever devices are added or removed. Subscriptions are aborted on error; refreshes run only while the Bluetooth tab is active.
 ///
-/// This refreshes the BT device list automatically, but only when the
-/// Bluetooth tab is active.
+/// # Examples
+///
+/// ```no_run
+/// // assuming `widgets` and `state` are already initialized
+/// setup_bt_live_updates(&widgets, state.clone());
+/// ```
 pub(super) fn setup_bt_live_updates(widgets: &PanelWidgets, state: Rc<RefCell<AppState>>) {
     let bt_list_box = widgets.bt_list_box.clone();
     let status = widgets.status_label.clone();
@@ -55,7 +58,7 @@ pub(super) fn setup_bt_live_updates(widgets: &PanelWidgets, state: Rc<RefCell<Ap
             }
         };
 
-        // InterfacesAdded — new devices discovered or property changes
+        // InterfacesAdded — new devices discovered
         let mut added_stream = match obj_manager.receive_interfaces_added().await {
             Ok(s) => s,
             Err(e) => {
@@ -64,17 +67,46 @@ pub(super) fn setup_bt_live_updates(widgets: &PanelWidgets, state: Rc<RefCell<Ap
             }
         };
 
-        log::info!("BT live updates: subscribed to InterfacesAdded signal");
+        // InterfacesRemoved — devices disappeared
+        let mut removed_stream = match obj_manager.receive_interfaces_removed().await {
+            Ok(s) => s,
+            Err(e) => {
+                log::error!("Failed to subscribe to InterfacesRemoved: {e}");
+                return;
+            }
+        };
+
+        log::info!("BT live updates: subscribed to InterfacesAdded/Removed signals");
 
         use futures_util::StreamExt;
-        while (added_stream.next().await).is_some() {
-            // Only refresh if BT tab is currently active
-            if !bt_tab.is_active() {
-                continue;
+        let bt_tab_added = bt_tab.clone();
+        let bt_list_box_added = bt_list_box.clone();
+        let status_added = status.clone();
+        let state_added = Rc::clone(&state);
+        glib::spawn_future_local(async move {
+            while (added_stream.next().await).is_some() {
+                if !bt_tab_added.is_active() {
+                    continue;
+                }
+                log::debug!("BT InterfacesAdded — refreshing device list");
+                glib::timeout_future(std::time::Duration::from_millis(300)).await;
+                refresh_bt_list(&state_added, &bt_list_box_added, &status_added).await;
             }
-            log::debug!("BT InterfacesAdded — refreshing device list");
-            glib::timeout_future(std::time::Duration::from_millis(300)).await;
-            refresh_bt_list(&state, &bt_list_box, &status).await;
-        }
+        });
+
+        let bt_tab_removed = bt_tab.clone();
+        let bt_list_box_removed = bt_list_box.clone();
+        let status_removed = status.clone();
+        let state_removed = Rc::clone(&state);
+        glib::spawn_future_local(async move {
+            while (removed_stream.next().await).is_some() {
+                if !bt_tab_removed.is_active() {
+                    continue;
+                }
+                log::debug!("BT InterfacesRemoved — refreshing device list");
+                glib::timeout_future(std::time::Duration::from_millis(300)).await;
+                refresh_bt_list(&state_removed, &bt_list_box_removed, &status_removed).await;
+            }
+        });
     });
 }

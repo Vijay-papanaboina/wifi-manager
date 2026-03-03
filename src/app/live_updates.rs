@@ -9,13 +9,18 @@ use crate::ui::window::PanelWidgets;
 
 use super::{AppState, get_wifi, refresh_list};
 
-/// Subscribe to NM D-Bus signals for live state updates.
+/// Register D-Bus signal handlers to keep the network UI in sync with system changes.
 ///
-/// Watches:
-/// - Device StateChanged — fires when connection state changes (connected/disconnected/etc)
-/// - Wireless AccessPointAdded/Removed — fires when APs appear/disappear
+/// Subscribes to NetworkManager device StateChanged and wireless AccessPointAdded/AccessPointRemoved
+/// signals; updates the Wi-Fi toggle and refreshes the network list after a short debounce when
+/// relevant events are received.
 ///
-/// On any change, the network list is auto-refreshed after a brief debounce.
+/// # Examples
+///
+/// ```no_run
+/// // given `widgets: PanelWidgets` and `state: Rc<RefCell<AppState>>`
+/// setup_live_updates(&widgets, state.clone());
+/// ```
 pub(super) fn setup_live_updates(widgets: &PanelWidgets, state: Rc<RefCell<AppState>>) {
     let list_box = widgets.network_list_box.clone();
     let status = widgets.status_label.clone();
@@ -116,15 +121,38 @@ pub(super) fn setup_live_updates(widgets: &PanelWidgets, state: Rc<RefCell<AppSt
                     return;
                 }
             };
+            let mut ap_removed = match wireless_proxy.receive_access_point_removed().await {
+                Ok(s) => s,
+                Err(e) => {
+                    log::error!("Failed to subscribe to AccessPointRemoved: {e}");
+                    return;
+                }
+            };
 
-            log::info!("Live updates: subscribed to AccessPointAdded signal");
+            log::info!("Live updates: subscribed to AccessPointAdded/Removed signals");
 
             use futures_util::StreamExt;
-            while (ap_added.next().await).is_some() {
-                log::debug!("AccessPoint added, refreshing list");
-                glib::timeout_future(std::time::Duration::from_millis(300)).await;
-                refresh_list(&state, &list_box, &status).await;
-            }
+            let state_added = Rc::clone(&state);
+            let list_box_added = list_box.clone();
+            let status_added = status.clone();
+            glib::spawn_future_local(async move {
+                while (ap_added.next().await).is_some() {
+                    log::debug!("AccessPoint added, refreshing list");
+                    glib::timeout_future(std::time::Duration::from_millis(300)).await;
+                    refresh_list(&state_added, &list_box_added, &status_added).await;
+                }
+            });
+
+            let state_removed = Rc::clone(&state);
+            let list_box_removed = list_box.clone();
+            let status_removed = status.clone();
+            glib::spawn_future_local(async move {
+                while (ap_removed.next().await).is_some() {
+                    log::debug!("AccessPoint removed, refreshing list");
+                    glib::timeout_future(std::time::Duration::from_millis(300)).await;
+                    refresh_list(&state_removed, &list_box_removed, &status_removed).await;
+                }
+            });
         });
     }
 }

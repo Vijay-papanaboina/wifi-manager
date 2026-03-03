@@ -69,6 +69,17 @@ impl ControlsPanel {
     pub fn revealer(&self) -> &Revealer { &self.revealer }
     pub fn toggle_button(&self) -> &ToggleButton { &self.toggle_button }
 
+    /// Creates a ControlsPanel containing brightness, volume, and night-mode sliders plus power action buttons.
+    ///
+    /// The panel includes a toggle button that shows or hides the slider area with a slide-down animation; the sliders start collapsed by default.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let panel = ControlsPanel::new();
+    /// // Default toggle button icon indicates the panel is collapsed
+    /// assert_eq!(panel.toggle_button().icon_name(), Some("pan-down-symbolic"));
+    /// ```
     pub fn new() -> Self {
         let container = Box::builder()
             .orientation(Orientation::Vertical)
@@ -173,14 +184,14 @@ impl ControlsPanel {
             .pixel_size(16)
             .build();
             
-        // Map 0 -> 6500K (coolest/no effect), 4000 -> 2500K (warmest)
+        // Map 0 -> 6500K (coolest/no effect), 3500 -> 3000K (warmest)
         let night_mode_scale = Scale::builder()
             .orientation(Orientation::Horizontal)
             .hexpand(true)
             .draw_value(true)
             .value_pos(gtk4::PositionType::Right)
             .tooltip_text("Night Mode (Color Temperature)")
-            .adjustment(&gtk4::Adjustment::new(0.0, 0.0, 4000.0, 100.0, 500.0, 0.0))
+            .adjustment(&gtk4::Adjustment::new(0.0, 0.0, 3500.0, 100.0, 500.0, 0.0))
             .build();
 
         night_mode_row.append(&night_mode_icon);

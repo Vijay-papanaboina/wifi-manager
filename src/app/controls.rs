@@ -9,7 +9,130 @@ use crate::controls::night_mode::NightModeManager;
 use crate::ui::window::PanelWidgets;
 
 const NEUTRAL_TEMP_KELVIN: f64 = 6500.0;
+const MIN_TEMP_KELVIN: f64 = 3000.0;
 
+/// Computes the smoothstep Hermite interpolation of a parameter.
+///
+/// The input is clamped to the range [0.0, 1.0] and mapped to an S-shaped curve that eases in and out.
+///
+/// # Examples
+///
+/// ```
+/// assert_eq!(smoothstep(0.0), 0.0);
+/// assert_eq!(smoothstep(1.0), 1.0);
+/// // midpoint maps to 0.5 for this polynomial
+/// assert_eq!(smoothstep(0.5), 0.5);
+/// // inputs outside [0,1] are clamped
+/// assert_eq!(smoothstep(-1.0), 0.0);
+/// assert_eq!(smoothstep(2.0), 1.0);
+/// ```
+fn smoothstep(t: f64) -> f64 {
+    let t = t.clamp(0.0, 1.0);
+    t * t * (3.0 - 2.0 * t)
+}
+
+/// Approximates the input t in [0, 1] such that `smoothstep(t) == x`.
+///
+/// Clamps `x` to [0, 1] and performs a fixed 20-iteration binary search to find
+/// the `t` in [0, 1] whose `smoothstep(t)` is closest to `x`.
+///
+/// # Returns
+///
+/// The `t` value in the range [0, 1] for which `smoothstep(t)` approximately equals `x`.
+///
+/// # Examples
+///
+/// ```
+/// let x = 0.25;
+/// let t = inverse_smoothstep(x);
+/// // round-trip: smoothstep(inverse_smoothstep(x)) ≈ x
+/// let reconstructed = smoothstep(t);
+/// assert!((reconstructed - x).abs() < 1e-6);
+/// ```
+fn inverse_smoothstep(x: f64) -> f64 {
+    let x = x.clamp(0.0, 1.0);
+    let mut lo = 0.0;
+    let mut hi = 1.0;
+    for _ in 0..20 {
+        let mid = (lo + hi) * 0.5;
+        let y = smoothstep(mid);
+        if y < x {
+            lo = mid;
+        } else {
+            hi = mid;
+        }
+    }
+    (lo + hi) * 0.5
+}
+
+/// Maps a slider position to a correlated color temperature in Kelvin using a smooth interpolation.
+///
+/// The function treats `val` as a position on a slider with range [0, `max`], normalizes and clamps it to [0,1],
+/// applies a smoothstep easing curve, and linearly interpolates between NEUTRAL_TEMP_KELVIN and MIN_TEMP_KELVIN.
+///
+/// # Arguments
+///
+/// * `val` - Slider value between 0 and `max`.
+/// * `max` - Slider maximum value (must be > 0).
+///
+/// # Examples
+///
+/// ```
+/// let max = 100.0;
+/// // middle of the slider yields a temperature between NEUTRAL_TEMP_KELVIN and MIN_TEMP_KELVIN
+/// let kelvin = slider_to_kelvin(50.0, max);
+/// assert!(kelvin >= MIN_TEMP_KELVIN && kelvin <= NEUTRAL_TEMP_KELVIN);
+/// ```
+fn slider_to_kelvin(val: f64, max: f64) -> f64 {
+    let t = (val / max).clamp(0.0, 1.0);
+    let t_smooth = smoothstep(t);
+    let range = NEUTRAL_TEMP_KELVIN - MIN_TEMP_KELVIN;
+    NEUTRAL_TEMP_KELVIN - (t_smooth * range)
+}
+
+/// Map a color temperature in Kelvin to a slider value within [0, max].
+///
+/// The input `kelvin` is clamped to the valid range `MIN_TEMP_KELVIN` ..= `NEUTRAL_TEMP_KELVIN` before mapping.
+/// The mapping uses a smooth interpolation so equal perceived steps near neutral and warm ends feel balanced.
+///
+/// # Parameters
+///
+/// - `kelvin`: Color temperature in Kelvin to convert; values outside the supported range are clamped.
+/// - `max`: Upper bound of the slider's range; the returned value will be between `0.0` and `max`.
+///
+/// # Returns
+///
+/// Slider position between `0.0` and `max` corresponding to the provided Kelvin temperature.
+///
+/// # Examples
+///
+/// ```
+/// let slider = kelvin_to_slider(5000.0, 100.0);
+/// assert!(slider >= 0.0 && slider <= 100.0);
+/// ```
+fn kelvin_to_slider(kelvin: f64, max: f64) -> f64 {
+    let kelvin = kelvin.clamp(MIN_TEMP_KELVIN, NEUTRAL_TEMP_KELVIN);
+    let range = NEUTRAL_TEMP_KELVIN - MIN_TEMP_KELVIN;
+    let t_smooth = (NEUTRAL_TEMP_KELVIN - kelvin) / range;
+    let t = inverse_smoothstep(t_smooth);
+    t * max
+}
+
+/// Connects the panel's control widgets to their respective backend managers and initializes their formatting and signal handlers.
+///
+/// This sets up brightness, volume, and night-mode controls: it attaches formatters for displayed values, initializes and subscribes to backend managers (BrightnessManager, VolumeManager, NightModeManager), updates UI state from backend changes, and forwards user interactions back to the managers (with debounce for brightness). Errors during manager initialization are logged.
+///
+/// # Parameters
+///
+/// * `widgets` - The collection of panel control widgets (scales, icons) to initialize and wire to their backends.
+///
+/// # Examples
+///
+/// ```no_run
+/// // Obtain `widgets` from your panel setup and then call:
+/// // let widgets: PanelWidgets = ...;
+/// // setup_controls(&widgets);
+/// ```
 pub fn setup_controls(widgets: &PanelWidgets) {
     let brightness_scale = widgets.controls.brightness_scale().clone();
     let volume_scale = widgets.controls.volume_scale().clone();
@@ -146,8 +269,11 @@ pub fn setup_controls(widgets: &PanelWidgets) {
     // ── Night Mode ───────────────────────────────────────────────
     let n_scale = night_mode_scale.clone();
     
-    n_scale.set_format_value_func(|_, val| -> String {
-        let kelvin: f64 = NEUTRAL_TEMP_KELVIN - val;
+    let n_max = n_scale
+        .adjustment()
+        .upper();
+    n_scale.set_format_value_func(move |_, val| -> String {
+        let kelvin = slider_to_kelvin(val, n_max);
         format!("{}K", kelvin.round() as i32)
     });
 
@@ -158,13 +284,15 @@ pub fn setup_controls(widgets: &PanelWidgets) {
             
             // Set initial value
             let current_kelvin = manager.get_temperature_kelvin();
-            n_scale_watcher.set_value(NEUTRAL_TEMP_KELVIN - current_kelvin);
+            let max = n_scale_watcher.adjustment().upper();
+            n_scale_watcher.set_value(kelvin_to_slider(current_kelvin, max));
 
             // Listen for UI slider changes -> tell backend
             let mgr_clone = Rc::clone(&manager);
             n_scale.connect_value_changed(move |scale: &gtk4::Scale| {
                 let val = scale.value();
-                let kelvin = NEUTRAL_TEMP_KELVIN - val;
+                let max = scale.adjustment().upper();
+                let kelvin = slider_to_kelvin(val, max);
                 if let Err(e) = mgr_clone.set_temperature(kelvin) {
                     log::warn!("Failed to set night mode temperature: {}", e);
                 }
