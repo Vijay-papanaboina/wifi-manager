@@ -62,12 +62,17 @@ There is no widely adopted standalone GUI WiFi manager designed specifically for
 - **Remove device** — unpair devices via the ⋮ menu
 - **Graceful fallback** — BT tab is hidden if no Bluetooth adapter is detected
 
-### General
+### System Controls
 
 - **Brightness & Volume Controls** — dedicated sliders statically pinned to the bottom of the panel,
   syncing in real-time with system events via `libpulse` and `systemd-logind`
 - **Night Mode (Color Temperature)** — dedicated slider to adjust display warmth,
   powered by Wayland's `wlr-gamma-control` protocol
+- **System Power Controls** — native buttons for Shutdown, Reboot, Suspend, and Logout,
+  with automatic compositor detection (Hyprland, Sway, River)
+
+### General
+
 - **Tabbed interface** — switch between WiFi and Bluetooth tabs
 - **Context-aware toggle** — single switch controls WiFi or Bluetooth power based on active tab
 - **Daemon mode** — runs as a background process, toggled via CLI flag or D-Bus
@@ -100,7 +105,7 @@ The following must be installed and running on your system:
 - **NetworkManager** — system network service
 - **BlueZ** — Bluetooth protocol stack (optional — BT tab is hidden if unavailable)
 - **PulseAudio / PipeWire-Pulse** — Audio server for volume control integration
-- **systemd-logind** — Session manager for brightness control (standard on systemd distros)
+- **systemd / systemctl** — Session manager and system power control
 - **GTK4** — UI toolkit
 - **gtk4-layer-shell** — Wayland layer-shell integration
 
@@ -228,6 +233,9 @@ margin_left = 10
 # Default: Nerd Fonts WiFi icons
 signal_icons = ["󰤟", "󰤢", "󰤥", "󰤨"]
 
+# Whether to show the panel immediately when the daemon starts (default: false)
+show_on_start = false
+
 # Alternative examples:
 # signal_icons = ["▂___", "▂▄__", "▂▄▆_", "▂▄▆█"]
 ```
@@ -249,30 +257,7 @@ wifi-manager ships with a dark default theme. To customize, create:
 ~/.config/wifi-manager/style.css
 ```
 
-Your CSS overrides the default theme. Available selectors:
-
-| Selector                 | Element                        |
-| ------------------------ | ------------------------------ |
-| `.wifi-panel`            | Main window container          |
-| `.header`                | Top bar (toggle, status, scan) |
-| `.tab-bar`               | Tab container                  |
-| `.tab-button`            | Wi-Fi / Bluetooth tab button   |
-| `.network-list`          | Scrollable network list        |
-| `.network-row`           | Individual network entry       |
-| `.network-row.connected` | Connected network              |
-| `.network-row.saved`     | Known/saved network            |
-| `.ssid-label`            | Network name                   |
-| `.signal-icon`           | Signal strength indicator      |
-| `.security-icon`         | Lock/open icon                 |
-| `.device-list`           | Bluetooth device list          |
-| `.device-row`            | Individual Bluetooth device    |
-| `.device-row.connected`  | Connected Bluetooth device     |
-| `.device-name`           | Bluetooth device name          |
-| `.device-icon`           | Device category icon           |
-| `.trusted-icon`          | Trusted device indicator       |
-| `.password-entry`        | Password input field           |
-| `.connect-button`        | Connect action button          |
-| `.error-label`           | Error messages                 |
+Your CSS overrides the default theme. For a complete list of available classes and structure, please refer to the [example style.css](examples/style.css) file provided in the repository. You can copy this file to your configuration directory and modify it to override any part of the UI styling.
 
 ## Architecture
 
@@ -294,7 +279,8 @@ src/
 │   ├── mod.rs               # Entry point for backend controls
 │   ├── brightness.rs        # BrightnessManager (systemd-logind + sysfs)
 │   ├── volume.rs            # VolumeManager (libpulse-binding)
-│   └── night_mode.rs        # NightModeManager (Wayland wlr-gamma-control)
+│   ├── night_mode.rs        # NightModeManager (Wayland wlr-gamma-control)
+│   └── power.rs             # PowerManager (systemctl + Compositor exit)
 ├── dbus/
 │   ├── proxies.rs           # NetworkManager D-Bus proxy traits (zbus)
 │   ├── network_manager.rs   # High-level WiFi operations
@@ -325,7 +311,7 @@ src/
 | WiFi backend        | NetworkManager (D-Bus)                  |
 | Bluetooth backend   | BlueZ (D-Bus)                           |
 | Audio backend       | libpulse (PulseAudio or PipeWire-Pulse) |
-| Brightness backend  | systemd-logind (D-Bus via zbus)         |
+| Power & Brightness  | systemd (systemctl + logind)            |
 | Night Mode backend  | wlr-gamma-control (Wayland)             |
 | Configuration       | serde + toml                            |
 | CLI                 | clap                                    |
