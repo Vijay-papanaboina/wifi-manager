@@ -21,6 +21,7 @@ pub fn build_network_list() -> (ScrolledWindow, ListBox) {
     scrolled.add_css_class("network-scroll");
     scrolled.set_policy(PolicyType::Never, PolicyType::Automatic);
     scrolled.set_has_frame(false);
+    scrolled.set_propagate_natural_height(true);
     scrolled.set_min_content_height(MIN_LIST_HEIGHT);
     scrolled.set_max_content_height(MAX_LIST_HEIGHT);
     scrolled.set_child(Some(&list_box));

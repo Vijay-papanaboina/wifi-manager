@@ -55,26 +55,70 @@ pub(super) fn setup_bt_live_updates(widgets: &PanelWidgets, state: Rc<RefCell<Ap
             }
         };
 
-        // InterfacesAdded — new devices discovered or property changes
-        let mut added_stream = match obj_manager.receive_interfaces_added().await {
-            Ok(s) => s,
+        // InterfacesAdded — new devices discovered
+        let added_stream = match obj_manager.receive_interfaces_added().await {
+            Ok(s) => Some(s),
             Err(e) => {
                 log::error!("Failed to subscribe to InterfacesAdded: {e}");
-                return;
+                None
             }
         };
 
-        log::info!("BT live updates: subscribed to InterfacesAdded signal");
+        // InterfacesRemoved — devices disappeared
+        let removed_stream = match obj_manager.receive_interfaces_removed().await {
+            Ok(s) => Some(s),
+            Err(e) => {
+                log::error!("Failed to subscribe to InterfacesRemoved: {e}");
+                None
+            }
+        };
+
+        if added_stream.is_none() && removed_stream.is_none() {
+            log::error!("BT live updates: failed to subscribe to InterfacesAdded/Removed");
+            return;
+        }
+
+        log::info!("BT live updates: subscribed to InterfacesAdded/Removed signals");
 
         use futures_util::StreamExt;
-        while (added_stream.next().await).is_some() {
-            // Only refresh if BT tab is currently active
-            if !bt_tab.is_active() {
-                continue;
-            }
-            log::debug!("BT InterfacesAdded — refreshing device list");
-            glib::timeout_future(std::time::Duration::from_millis(300)).await;
-            refresh_bt_list(&state, &bt_list_box, &status).await;
+        let bt_tab_added = bt_tab.clone();
+        let bt_list_box_added = bt_list_box.clone();
+        let status_added = status.clone();
+        let state_added = Rc::clone(&state);
+        if let Some(mut added_stream) = added_stream {
+            glib::spawn_future_local(async move {
+                while (added_stream.next().await).is_some() {
+                    if !bt_tab_added.is_active() {
+                        continue;
+                    }
+                    log::debug!("BT InterfacesAdded — refreshing device list");
+                    glib::timeout_future(std::time::Duration::from_millis(300)).await;
+                    if !bt_tab_added.is_active() {
+                        continue;
+                    }
+                    refresh_bt_list(&state_added, &bt_list_box_added, &status_added).await;
+                }
+            });
+        }
+
+        let bt_tab_removed = bt_tab.clone();
+        let bt_list_box_removed = bt_list_box.clone();
+        let status_removed = status.clone();
+        let state_removed = Rc::clone(&state);
+        if let Some(mut removed_stream) = removed_stream {
+            glib::spawn_future_local(async move {
+                while (removed_stream.next().await).is_some() {
+                    if !bt_tab_removed.is_active() {
+                        continue;
+                    }
+                    log::debug!("BT InterfacesRemoved — refreshing device list");
+                    glib::timeout_future(std::time::Duration::from_millis(300)).await;
+                    if !bt_tab_removed.is_active() {
+                        continue;
+                    }
+                    refresh_bt_list(&state_removed, &bt_list_box_removed, &status_removed).await;
+                }
+            });
         }
     });
 }

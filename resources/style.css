@@ -338,6 +338,12 @@ switch slider {
   color: #3584e4;
 }
 
+.device-nearby {
+  color: #57e389;
+  font-size: 12px;
+  margin-left: 2px;
+}
+
 .trusted-icon {
   font-size: 14px;
   color: #57e389;

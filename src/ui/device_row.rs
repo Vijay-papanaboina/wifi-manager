@@ -11,6 +11,7 @@ use crate::dbus::bluetooth_device::BluetoothDevice;
 pub fn build_device_row(
     device: &BluetoothDevice,
     on_remove: impl Fn(String) + 'static,
+    on_menu_active: impl Fn(bool) + 'static,
 ) -> ListBoxRow {
     let row = ListBoxRow::new();
     row.add_css_class("device-row");
@@ -38,11 +39,24 @@ pub fn build_device_row(
     info_vbox.set_hexpand(true);
     info_vbox.set_valign(gtk4::Align::Center);
 
-    // Device name
+    // Device name row (name + nearby indicator)
+    let name_row = GtkBox::new(Orientation::Horizontal, 6);
+    name_row.set_halign(gtk4::Align::Start);
+    name_row.set_hexpand(true);
+
     let name_label = Label::new(Some(&device.display_name));
     name_label.add_css_class("device-name");
     name_label.set_halign(gtk4::Align::Start);
     name_label.set_ellipsize(gtk4::pango::EllipsizeMode::End);
+    name_row.append(&name_label);
+
+    if device.is_in_range() && !device.connected {
+        let nearby = Label::new(Some("•"));
+        nearby.add_css_class("device-nearby");
+        nearby.set_valign(gtk4::Align::Center);
+        nearby.set_tooltip_text(Some("Nearby"));
+        name_row.append(&nearby);
+    }
 
     // Subtitle line (status)
     let subtitle_text = device_subtitle(device);
@@ -51,7 +65,7 @@ pub fn build_device_row(
     subtitle_label.set_halign(gtk4::Align::Start);
     subtitle_label.set_ellipsize(gtk4::pango::EllipsizeMode::End);
 
-    info_vbox.append(&name_label);
+    info_vbox.append(&name_row);
     info_vbox.append(&subtitle_label);
 
     hbox.append(&icon_label);
@@ -71,7 +85,7 @@ pub fn build_device_row(
         use gtk4::{gio, MenuButton, PopoverMenu};
 
         let menu = gio::Menu::new();
-        menu.append(Some("Remove"), Some("row.remove"));
+        menu.append(Some("Unpair"), Some("row.remove"));
 
         let popover = PopoverMenu::from_model(Some(&menu));
         popover.add_css_class("device-popover");
@@ -85,6 +99,9 @@ pub fn build_device_row(
         menu_btn.set_popover(Some(&popover));
         menu_btn.set_halign(gtk4::Align::End);
         menu_btn.set_valign(gtk4::Align::Center);
+        menu_btn.connect_active_notify(move |btn| {
+            on_menu_active(btn.is_active());
+        });
 
         let action = gio::SimpleAction::new("remove", None);
         let device_path = device.device_path.clone();

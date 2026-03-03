@@ -14,6 +14,11 @@ use crate::ui::window::PanelWidgets;
 
 use super::AppState;
 
+const BT_MANUAL_SCAN_WINDOW_MS: u64 = 5000;
+const BT_AUTO_SCAN_WINDOW_MS: u64 = 10000;
+const BT_AUTO_SCAN_COOLDOWN_MS: u64 = 10000;
+const BT_LIVE_REFRESH_INTERVAL_MS: u64 = 2000;
+
 /// Set up all Bluetooth UI event handlers.
 ///
 /// If no Bluetooth adapter is available, the BT tab is hidden entirely.
@@ -58,6 +63,16 @@ pub(super) fn setup_bluetooth(widgets: &PanelWidgets, state: Rc<RefCell<AppState
 
             bt_tab.connect_toggled(move |btn| {
                 if !btn.is_active() {
+                    stop_bt_background_tasks(&state);
+                    let state = Rc::clone(&state);
+                    let btn = btn.clone();
+                    glib::spawn_future_local(async move {
+                        if !btn.is_active() {
+                            if let Some(bt) = get_bt(&state) {
+                                let _ = bt.stop_discovery().await;
+                            }
+                        }
+                    });
                     return;
                 }
 
@@ -72,6 +87,8 @@ pub(super) fn setup_bluetooth(widgets: &PanelWidgets, state: Rc<RefCell<AppState
                 let bt_scroll = bt_scroll.clone();
                 let status = status.clone();
                 let switch = switch.clone();
+                let state_for_bg = Rc::clone(&state);
+                let bt_tab_for_bg = btn.clone();
 
                 glib::spawn_future_local(async move {
                     let bt = match get_bt(&state) {
@@ -93,28 +110,30 @@ pub(super) fn setup_bluetooth(widgets: &PanelWidgets, state: Rc<RefCell<AppState
                         // BT is off — show disabled state, no spinner
                         status.set_text("Bluetooth disabled");
                         bt_spinner.set_visible(false);
+                        bt_spinner.set_spinning(false);
                         bt_scroll.set_visible(true);
                         device_list::populate_device_list(
-                            &bt_list_box, &[], &bt, &status,
+                            &bt_list_box,
+                            &[],
+                            no_op_remove(),
+                            no_op_menu_active(),
                         );
+                        stop_bt_background_tasks(&state);
                         return;
                     }
 
-                    // BT is on — discover and populate
-                    bt_spinner.set_visible(true);
-                    bt_spinner.set_spinning(true);
-                    bt_scroll.set_visible(false);
-
-                    if let Err(e) = bt.start_discovery().await {
-                        log::warn!("BT discovery failed: {e}");
-                    }
-                    glib::timeout_future(std::time::Duration::from_millis(2000)).await;
+                    // BT is on — show list, refresh once, then start background tasks
+                    bt_spinner.set_visible(false);
+                    bt_spinner.set_spinning(false);
+                    bt_scroll.set_visible(true);
 
                     refresh_bt_list(&state, &bt_list_box, &status).await;
-
-                    bt_spinner.set_spinning(false);
-                    bt_spinner.set_visible(false);
-                    bt_scroll.set_visible(true);
+                    start_bt_background_tasks(
+                        state_for_bg,
+                        bt_tab_for_bg,
+                        bt_list_box,
+                        status,
+                    );
                 });
             });
         }
@@ -127,12 +146,15 @@ pub(super) fn setup_bluetooth(widgets: &PanelWidgets, state: Rc<RefCell<AppState
             let bt_scroll = bt_scroll.clone();
             let status = status.clone();
             let bt_tab_c = bt_tab.clone();
+            let scan_btn = scan_btn.clone();
 
             switch.connect_state_set(move |_switch, enabled| {
                 if !bt_tab_c.is_active() {
                     return glib::Propagation::Proceed;
                 }
 
+                let bt_tab_c = bt_tab_c.clone();
+                let scan_btn = scan_btn.clone();
                 let state = Rc::clone(&state);
                 let bt_list_box = bt_list_box.clone();
                 let bt_spinner = bt_spinner.clone();
@@ -149,28 +171,30 @@ pub(super) fn setup_bluetooth(widgets: &PanelWidgets, state: Rc<RefCell<AppState
                         Ok(_) => {
                             if enabled {
                                 status.set_text("Bluetooth enabled");
-                                bt_spinner.set_visible(true);
-                                bt_spinner.set_spinning(true);
-                                bt_scroll.set_visible(false);
-
-                                if let Err(e) = bt.start_discovery().await {
-                                    log::warn!("BT discovery after power on failed: {e}");
-                                }
-                                glib::timeout_future(std::time::Duration::from_millis(2000))
-                                    .await;
-                                refresh_bt_list(&state, &bt_list_box, &status).await;
-
-                                bt_spinner.set_spinning(false);
-                                bt_spinner.set_visible(false);
-                                bt_scroll.set_visible(true);
+                                scan_btn.set_sensitive(false);
+                                run_bt_scan_burst(
+                                    Rc::clone(&state),
+                                    bt_list_box,
+                                    status,
+                                    bt_tab_c.clone(),
+                                    Some(ManualBtScanUi {
+                                        scan_btn: scan_btn.clone(),
+                                        spinner: bt_spinner,
+                                        scroll: bt_scroll,
+                                    }),
+                                    BT_MANUAL_SCAN_WINDOW_MS,
+                                )
+                                .await;
                             } else {
                                 status.set_text("Bluetooth disabled");
                                 device_list::populate_device_list(
                                     &bt_list_box,
                                     &[],
-                                    &bt,
-                                    &status,
+                                    no_op_remove(),
+                                    no_op_menu_active(),
                                 );
+                                stop_bt_background_tasks(&state);
+                                let _ = bt.stop_discovery().await;
                             }
                         }
                         Err(e) => {
@@ -260,6 +284,38 @@ pub(super) fn setup_bluetooth(widgets: &PanelWidgets, state: Rc<RefCell<AppState
     });
 }
 
+/// Run a manual Bluetooth scan (spinner visible, list hidden).
+pub(super) fn run_manual_scan(
+    state: Rc<RefCell<AppState>>,
+    bt_tab: gtk4::ToggleButton,
+    list_box: gtk4::ListBox,
+    status: gtk4::Label,
+    scan_btn: gtk4::Button,
+    spinner: gtk4::Spinner,
+    scroll: gtk4::ScrolledWindow,
+) {
+    scan_btn.set_sensitive(false);
+    spinner.set_visible(true);
+    spinner.set_spinning(true);
+    scroll.set_visible(false);
+
+    glib::spawn_future_local(async move {
+        run_bt_scan_burst(
+            state,
+            list_box,
+            status,
+            bt_tab,
+            Some(ManualBtScanUi {
+                scan_btn,
+                spinner,
+                scroll,
+            }),
+            BT_MANUAL_SCAN_WINDOW_MS,
+        )
+        .await;
+    });
+}
+
 /// Extract BluetoothManager from AppState.
 fn get_bt(state: &Rc<RefCell<AppState>>) -> Option<BluetoothManager> {
     state.borrow().bluetooth.clone()
@@ -271,6 +327,10 @@ pub(super) async fn refresh_bt_list(
     list_box: &gtk4::ListBox,
     status: &gtk4::Label,
 ) {
+    if state.borrow().bt_menu_open {
+        log::debug!("BT menu open — skipping refresh");
+        return;
+    }
     let bt = match get_bt(state) {
         Some(bt) => bt,
         None => return,
@@ -285,7 +345,9 @@ pub(super) async fn refresh_bt_list(
                 None => status.set_text("Not connected"),
             }
 
-            device_list::populate_device_list(list_box, &devices, &bt, status);
+            let on_remove = build_remove_callback(state, list_box, status, &bt);
+            let on_menu_active = build_menu_active_callback(state);
+            device_list::populate_device_list(list_box, &devices, on_remove, on_menu_active);
             log::info!("BT device list refreshed: {} devices", devices.len());
             state.borrow_mut().bt_devices = devices;
         }
@@ -293,5 +355,277 @@ pub(super) async fn refresh_bt_list(
             log::error!("Failed to get BT devices: {e}");
             status.set_text("Failed to load devices");
         }
+    }
+}
+
+struct ManualBtScanUi {
+    scan_btn: gtk4::Button,
+    spinner: gtk4::Spinner,
+    scroll: gtk4::ScrolledWindow,
+}
+
+fn start_bt_background_tasks(
+    state: Rc<RefCell<AppState>>,
+    bt_tab: gtk4::ToggleButton,
+    list_box: gtk4::ListBox,
+    status: gtk4::Label,
+) {
+    if state.borrow().bt_auto_scan_active {
+        return;
+    }
+    state.borrow_mut().bt_auto_scan_active = true;
+
+    // Immediate background scan burst when tab activates
+    glib::spawn_future_local({
+        let state = Rc::clone(&state);
+        let list_box = list_box.clone();
+        let status = status.clone();
+        let bt_tab = bt_tab.clone();
+        async move {
+            run_bt_scan_burst(
+                Rc::clone(&state),
+                list_box.clone(),
+                status.clone(),
+                bt_tab.clone(),
+                None,
+                BT_AUTO_SCAN_WINDOW_MS,
+            )
+            .await;
+            if !bt_tab.is_active() || !state.borrow().bt_auto_scan_active {
+                return;
+            }
+            schedule_bt_auto_scan(state, bt_tab, list_box, status);
+        }
+    });
+
+    let live_refresh_id = glib::timeout_add_local(
+        std::time::Duration::from_millis(BT_LIVE_REFRESH_INTERVAL_MS),
+        {
+            let state = Rc::clone(&state);
+            let list_box = list_box.clone();
+            let status = status.clone();
+            let bt_tab = bt_tab.clone();
+            move || {
+                if !bt_tab.is_active() {
+                    state.borrow_mut().bt_live_refresh_source = None;
+                    return glib::ControlFlow::Break;
+                }
+                if state.borrow().bt_scan_in_progress {
+                    return glib::ControlFlow::Continue;
+                }
+                glib::spawn_future_local({
+                    let state = Rc::clone(&state);
+                    let list_box = list_box.clone();
+                    let status = status.clone();
+                    async move {
+                        refresh_bt_list(&state, &list_box, &status).await;
+                    }
+                });
+                glib::ControlFlow::Continue
+            }
+        },
+    );
+
+    let mut st = state.borrow_mut();
+    st.bt_live_refresh_source = Some(live_refresh_id);
+}
+
+fn stop_bt_background_tasks(state: &Rc<RefCell<AppState>>) {
+    let mut st = state.borrow_mut();
+    if let Some(id) = st.bt_auto_scan_source.take() {
+        id.remove();
+    }
+    if let Some(id) = st.bt_live_refresh_source.take() {
+        id.remove();
+    }
+    st.bt_auto_scan_active = false;
+}
+
+fn schedule_bt_auto_scan(
+    state: Rc<RefCell<AppState>>,
+    bt_tab: gtk4::ToggleButton,
+    list_box: gtk4::ListBox,
+    status: gtk4::Label,
+) {
+    let state_for_cb = Rc::clone(&state);
+    let source_id = glib::timeout_add_local_once(
+        std::time::Duration::from_millis(BT_AUTO_SCAN_COOLDOWN_MS),
+        move || {
+            state_for_cb.borrow_mut().bt_auto_scan_source = None;
+            if !bt_tab.is_active() || !state_for_cb.borrow().bt_auto_scan_active {
+                return;
+            }
+            glib::spawn_future_local({
+                let state = Rc::clone(&state_for_cb);
+                let list_box = list_box.clone();
+                let status = status.clone();
+                let bt_tab = bt_tab.clone();
+                async move {
+                    run_bt_scan_burst(
+                        Rc::clone(&state),
+                        list_box.clone(),
+                        status.clone(),
+                        bt_tab.clone(),
+                        None,
+                        BT_AUTO_SCAN_WINDOW_MS,
+                    )
+                    .await;
+                    if bt_tab.is_active() && state.borrow().bt_auto_scan_active {
+                        schedule_bt_auto_scan(state, bt_tab, list_box, status);
+                    }
+                }
+            });
+        },
+    );
+    state.borrow_mut().bt_auto_scan_source = Some(source_id);
+}
+
+fn no_op_remove() -> std::rc::Rc<dyn Fn(String)> {
+    std::rc::Rc::new(|_path| {})
+}
+
+fn no_op_menu_active() -> std::rc::Rc<dyn Fn(bool)> {
+    std::rc::Rc::new(|_active| {})
+}
+
+fn build_remove_callback(
+    state: &Rc<RefCell<AppState>>,
+    list_box: &gtk4::ListBox,
+    status: &gtk4::Label,
+    bt: &BluetoothManager,
+) -> std::rc::Rc<dyn Fn(String)> {
+    let state = Rc::clone(state);
+    let list_box = list_box.clone();
+    let status = status.clone();
+    let bt = bt.clone();
+    std::rc::Rc::new(move |device_path| {
+        let state = Rc::clone(&state);
+        let list_box = list_box.clone();
+        let status = status.clone();
+        let bt = bt.clone();
+        glib::spawn_future_local(async move {
+            status.set_text("Unpairing device...");
+            match bt.remove_device(&device_path).await {
+                Ok(_) => {
+                    status.set_text("Device unpaired");
+                    refresh_bt_list(&state, &list_box, &status).await;
+                }
+                Err(e) => {
+                    log::error!("Remove failed: {e}");
+                    status.set_text(&format!("Failed to unpair: {}", e));
+                }
+            }
+        });
+    })
+}
+
+fn build_menu_active_callback(state: &Rc<RefCell<AppState>>) -> std::rc::Rc<dyn Fn(bool)> {
+    let state = Rc::clone(state);
+    std::rc::Rc::new(move |active| {
+        state.borrow_mut().bt_menu_open = active;
+    })
+}
+
+async fn run_bt_scan_burst(
+    state: Rc<RefCell<AppState>>,
+    list_box: gtk4::ListBox,
+    status: gtk4::Label,
+    bt_tab: gtk4::ToggleButton,
+    manual_ui: Option<ManualBtScanUi>,
+    scan_window_ms: u64,
+) {
+    fn finish_manual_ui(ui: ManualBtScanUi) {
+        ui.spinner.set_spinning(false);
+        ui.spinner.set_visible(false);
+        ui.scroll.set_visible(true);
+        ui.scan_btn.set_sensitive(true);
+    }
+
+    struct ScanGuard(Rc<RefCell<AppState>>);
+    impl Drop for ScanGuard {
+        fn drop(&mut self) {
+            self.0.borrow_mut().bt_scan_in_progress = false;
+        }
+    }
+
+    if !bt_tab.is_active() {
+        if let Some(ui) = manual_ui {
+            finish_manual_ui(ui);
+        }
+        return;
+    }
+
+    {
+        let mut st = state.borrow_mut();
+        if st.bt_scan_in_progress {
+            if let Some(ui) = manual_ui {
+                status.set_text("Scan already running");
+                finish_manual_ui(ui);
+            }
+            return;
+        }
+        st.bt_scan_in_progress = true;
+    }
+    let _guard = ScanGuard(Rc::clone(&state));
+
+    let bt = match get_bt(&state) {
+        Some(bt) => bt,
+        None => {
+            if let Some(ui) = manual_ui {
+                finish_manual_ui(ui);
+            }
+            return;
+        }
+    };
+
+    let powered = match bt.is_powered().await {
+        Ok(p) => p,
+        Err(e) => {
+            log::error!("Failed to get BT power state: {e}");
+            true
+        }
+    };
+
+    if !powered {
+        status.set_text("Bluetooth disabled");
+        if let Some(ui) = manual_ui {
+            finish_manual_ui(ui);
+        }
+        return;
+    }
+
+    if let Some(ref ui) = manual_ui {
+        ui.spinner.set_visible(true);
+        ui.spinner.set_spinning(true);
+        ui.scroll.set_visible(false);
+    }
+
+    let discovering = bt.is_discovering().await.unwrap_or(false);
+    let mut started_discovery = false;
+    if !discovering {
+        match bt.start_discovery().await {
+            Ok(()) => {
+                started_discovery = true;
+            }
+            Err(e) => {
+                log::warn!("BT discovery failed: {e}");
+            }
+        }
+    }
+
+    glib::timeout_future(std::time::Duration::from_millis(scan_window_ms)).await;
+
+    if bt_tab.is_active() {
+        refresh_bt_list(&state, &list_box, &status).await;
+    }
+
+    if started_discovery {
+        if let Err(e) = bt.stop_discovery().await {
+            log::warn!("BT discovery stop failed: {e}");
+        }
+    }
+
+    if let Some(ui) = manual_ui {
+        finish_manual_ui(ui);
     }
 }

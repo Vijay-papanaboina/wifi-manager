@@ -16,8 +16,8 @@ use crate::config::{Config, Position};
 
 /// Minimum pixel height for list boxes (shows ~3 items)
 pub const MIN_LIST_HEIGHT: i32 = 220;
-/// Maximum pixel height for list boxes before scrolling (shows ~4 items)
-pub const MAX_LIST_HEIGHT: i32 = 280;
+/// Maximum pixel height for list boxes before scrolling (shows ~4–5 items)
+pub const MAX_LIST_HEIGHT: i32 = 360;
 
 /// Default width of the main panel window
 pub const WINDOW_WIDTH: i32 = 340;
