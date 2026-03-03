@@ -48,6 +48,10 @@ struct AppState {
     bt_auto_scan_active: bool,
     /// Whether a Bluetooth device menu is open (avoid refresh to prevent popover closing).
     bt_menu_open: bool,
+    /// Whether a Wi-Fi scan is currently running.
+    wifi_scan_in_progress: bool,
+    /// Periodic auto-scan timer for Wi-Fi (when Wi-Fi tab is active).
+    wifi_auto_scan_source: Option<glib::SourceId>,
 }
 
 /// Set up all event handlers, kick off the initial scan, start live updates,
@@ -69,6 +73,8 @@ pub fn setup(
         bt_live_refresh_source: None,
         bt_auto_scan_active: false,
         bt_menu_open: false,
+        wifi_scan_in_progress: false,
+        wifi_auto_scan_source: None,
     }));
 
     connection::setup_wifi_toggle(widgets, Rc::clone(&state));
@@ -80,6 +86,14 @@ pub fn setup(
     bt_live_updates::setup_bt_live_updates(widgets, Rc::clone(&state));
     setup_scan_button_dispatch(widgets, Rc::clone(&state));
     setup_wifi_tab_sync(widgets, Rc::clone(&state));
+    if widgets.wifi_tab.is_active() {
+        scanning::start_wifi_auto_scan(
+            Rc::clone(&state),
+            widgets.wifi_tab.clone(),
+            widgets.network_list_box.clone(),
+            widgets.status_label.clone(),
+        );
+    }
     let reload_requested = panel_state.reload_requested.clone();
     shortcuts::setup_escape_key(widgets, panel_state);
     shortcuts::setup_reload_on_request(widgets, Rc::clone(&state), reload_requested);
@@ -170,6 +184,7 @@ fn setup_wifi_tab_sync(widgets: &PanelWidgets, state: Rc<RefCell<AppState>>) {
 
     wifi_tab.connect_toggled(move |btn| {
         if !btn.is_active() {
+            scanning::stop_wifi_auto_scan(&state);
             return;
         }
 
@@ -177,13 +192,15 @@ fn setup_wifi_tab_sync(widgets: &PanelWidgets, state: Rc<RefCell<AppState>>) {
         switch.set_tooltip_text(Some("Enable/Disable Wi-Fi"));
         scan_btn.set_tooltip_text(Some("Scan for networks"));
 
-        let state = Rc::clone(&state);
+        let state_for_refresh = Rc::clone(&state);
         let switch = switch.clone();
         let status = status.clone();
         let list_box = list_box.clone();
+        let status_for_refresh = status.clone();
+        let list_box_for_refresh = list_box.clone();
 
         gtk4::glib::spawn_future_local(async move {
-            let wifi = get_wifi(&state);
+            let wifi = get_wifi(&state_for_refresh);
 
             // Sync switch to actual WiFi power state
             match wifi.is_wifi_enabled().await {
@@ -192,7 +209,14 @@ fn setup_wifi_tab_sync(widgets: &PanelWidgets, state: Rc<RefCell<AppState>>) {
             }
 
             // Refresh network list
-            refresh_list(&state, &list_box, &status).await;
+            refresh_list(&state_for_refresh, &list_box_for_refresh, &status_for_refresh).await;
         });
+
+        scanning::start_wifi_auto_scan(
+            Rc::clone(&state),
+            btn.clone(),
+            list_box.clone(),
+            status.clone(),
+        );
     });
 }
