@@ -183,11 +183,9 @@ pub fn setup_controls(widgets: &PanelWidgets) {
     // ── Night Mode ───────────────────────────────────────────────
     let n_scale = night_mode_scale.clone();
     
-    let n_max = n_scale
-        .adjustment()
-        .upper();
-    n_scale.set_format_value_func(move |_, val| -> String {
-        let kelvin = slider_to_kelvin(val, n_max);
+    n_scale.set_format_value_func(move |scale, val| -> String {
+        let max = scale.adjustment().upper();
+        let kelvin = slider_to_kelvin(val, max);
         format!("{}K", kelvin.round() as i32)
     });
 

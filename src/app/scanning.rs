@@ -211,6 +211,7 @@ async fn run_wifi_scan(
                 ui.scrolled.set_visible(true);
                 ui.scan_btn.set_sensitive(true);
             }
+            status.set_text("Wi-Fi is disabled");
             return;
         }
         Err(e) => {
