@@ -87,10 +87,21 @@ pub struct BluetoothDevice {
 }
 
 impl BluetoothDevice {
-    /// Sort key: connected first, then paired, then by name.
-    pub fn sort_key(&self) -> (u8, u8, String) {
+    /// Whether the device is currently in range (RSSI only present during discovery).
+    pub fn is_in_range(&self) -> bool {
+        self.rssi != 0
+    }
+
+    /// Sort key: connected first, then in-range, then paired, then by name.
+    pub fn sort_key(&self) -> (u8, u8, u8, String) {
         let connected_order = if self.connected { 0 } else { 1 };
+        let in_range_order = if self.is_in_range() { 0 } else { 1 };
         let paired_order = if self.paired { 0 } else { 1 };
-        (connected_order, paired_order, self.display_name.to_lowercase())
+        (
+            connected_order,
+            in_range_order,
+            paired_order,
+            self.display_name.to_lowercase(),
+        )
     }
 }

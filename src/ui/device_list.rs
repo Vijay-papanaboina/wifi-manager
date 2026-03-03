@@ -6,7 +6,6 @@ use crate::ui::window::{MIN_LIST_HEIGHT, MAX_LIST_HEIGHT};
 
 use super::device_row;
 use crate::dbus::bluetooth_device::BluetoothDevice;
-use crate::dbus::bluetooth_manager::BluetoothManager;
 
 /// Build a scrollable device list.
 ///
@@ -21,6 +20,7 @@ pub fn build_device_list() -> (ScrolledWindow, ListBox) {
     scrolled.add_css_class("device-scroll");
     scrolled.set_policy(PolicyType::Never, PolicyType::Automatic);
     scrolled.set_has_frame(false);
+    scrolled.set_propagate_natural_height(true);
     scrolled.set_min_content_height(MIN_LIST_HEIGHT);
     scrolled.set_max_content_height(MAX_LIST_HEIGHT);
     scrolled.set_child(Some(&list_box));
@@ -32,11 +32,9 @@ pub fn build_device_list() -> (ScrolledWindow, ListBox) {
 pub fn populate_device_list(
     list_box: &ListBox,
     devices: &[BluetoothDevice],
-    bt: &BluetoothManager,
-    status: &gtk4::Label,
+    on_remove: std::rc::Rc<dyn Fn(String)>,
+    on_menu_active: std::rc::Rc<dyn Fn(bool)>,
 ) {
-    use gtk4::glib;
-
     // Remove all existing rows
     while let Some(row) = list_box.first_child() {
         list_box.remove(&row);
@@ -49,30 +47,19 @@ pub fn populate_device_list(
         return;
     }
 
-    let bt = bt.clone();
-    let status_clone = status.clone();
-
     for device in devices {
-        let bt_clone = bt.clone();
-        let status_clone2 = status_clone.clone();
+        let on_remove = on_remove.clone();
+        let on_menu_active = on_menu_active.clone();
 
-        let row = device_row::build_device_row(device, move |device_path| {
-            let bt = bt_clone.clone();
-            let status = status_clone2.clone();
-
-            glib::spawn_future_local(async move {
-                status.set_text("Removing device...");
-                match bt.remove_device(&device_path).await {
-                    Ok(_) => {
-                        status.set_text("Device removed");
-                    }
-                    Err(e) => {
-                        log::error!("Remove failed: {e}");
-                        status.set_text(&format!("Failed to remove: {}", e));
-                    }
-                }
-            });
-        });
+        let row = device_row::build_device_row(
+            device,
+            move |device_path| {
+                on_remove(device_path);
+            },
+            move |active| {
+                on_menu_active(active);
+            },
+        );
         list_box.append(&row);
     }
 }

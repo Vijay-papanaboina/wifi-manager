@@ -82,52 +82,44 @@ pub(super) fn setup_initial_state(widgets: &PanelWidgets, state: Rc<RefCell<AppS
     });
 }
 
-/// Wire the scan button to trigger a scan and refresh the list.
-pub(super) fn setup_scan_button(widgets: &PanelWidgets, state: Rc<RefCell<AppState>>) {
-    let list_box = widgets.network_list_box.clone();
-    let status = widgets.status_label.clone();
-    let scan_btn = widgets.scan_button.clone();
-    let spinner = widgets.spinner.clone();
-    let scrolled = widgets.network_scroll.clone();
-
+/// Run a manual Wi-Fi scan (spinner visible, list hidden).
+pub(super) fn run_manual_scan(
+    state: Rc<RefCell<AppState>>,
+    list_box: gtk4::ListBox,
+    status: gtk4::Label,
+    scan_btn: gtk4::Button,
+    spinner: gtk4::Spinner,
+    scrolled: gtk4::ScrolledWindow,
+) {
     // Set scan button as default focus to avoid accidental WiFi toggle
     scan_btn.grab_focus();
+    scan_btn.set_sensitive(false);
 
-    scan_btn.connect_clicked(move |btn| {
-        btn.set_sensitive(false);
-        let state = Rc::clone(&state);
-        let list_box = list_box.clone();
-        let status = status.clone();
-        let btn = btn.clone();
-        let spinner = spinner.clone();
-        let scrolled = scrolled.clone();
+    // Show spinner, hide list
+    spinner.set_visible(true);
+    spinner.set_spinning(true);
+    scrolled.set_visible(false);
 
-        // Show spinner, hide list
-        spinner.set_visible(true);
-        spinner.set_spinning(true);
-        scrolled.set_visible(false);
-
-        glib::spawn_future_local(async move {
-            let wifi = get_wifi(&state);
-            if let Err(e) = wifi.request_scan().await {
-                log::error!("Scan failed: {e}");
-                status.set_text("Scan failed");
-                spinner.set_spinning(false);
-                spinner.set_visible(false);
-                scrolled.set_visible(true);
-                btn.set_sensitive(true);
-                return;
-            }
-
-            // Wait for scan results
-            glib::timeout_future(std::time::Duration::from_millis(1500)).await;
-            refresh_list(&state, &list_box, &status).await;
-
-            // Hide spinner, show list
+    glib::spawn_future_local(async move {
+        let wifi = get_wifi(&state);
+        if let Err(e) = wifi.request_scan().await {
+            log::error!("Scan failed: {e}");
+            status.set_text("Scan failed");
             spinner.set_spinning(false);
             spinner.set_visible(false);
             scrolled.set_visible(true);
-            btn.set_sensitive(true);
-        });
+            scan_btn.set_sensitive(true);
+            return;
+        }
+
+        // Wait for scan results
+        glib::timeout_future(std::time::Duration::from_millis(1500)).await;
+        refresh_list(&state, &list_box, &status).await;
+
+        // Hide spinner, show list
+        spinner.set_spinning(false);
+        spinner.set_visible(false);
+        scrolled.set_visible(true);
+        scan_btn.set_sensitive(true);
     });
 }

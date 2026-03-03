@@ -17,6 +17,7 @@ mod shortcuts;
 use std::cell::RefCell;
 use std::rc::Rc;
 
+use gtk4::glib;
 use gtk4::prelude::*;
 
 use crate::dbus::access_point::Network;
@@ -37,6 +38,16 @@ struct AppState {
     bluetooth: Option<BluetoothManager>,
     /// Bluetooth device list — refreshed on BT scan.
     bt_devices: Vec<BluetoothDevice>,
+    /// Whether a Bluetooth scan is currently running.
+    bt_scan_in_progress: bool,
+    /// Periodic auto-scan timer for Bluetooth (when BT tab is active).
+    bt_auto_scan_source: Option<glib::SourceId>,
+    /// Periodic refresh timer for Bluetooth list (when BT tab is active).
+    bt_live_refresh_source: Option<glib::SourceId>,
+    /// Whether Bluetooth auto-scan loop is active.
+    bt_auto_scan_active: bool,
+    /// Whether a Bluetooth device menu is open (avoid refresh to prevent popover closing).
+    bt_menu_open: bool,
 }
 
 /// Set up all event handlers, kick off the initial scan, start live updates,
@@ -53,9 +64,13 @@ pub fn setup(
         selected_index: None,
         bluetooth: None,
         bt_devices: Vec::new(),
+        bt_scan_in_progress: false,
+        bt_auto_scan_source: None,
+        bt_live_refresh_source: None,
+        bt_auto_scan_active: false,
+        bt_menu_open: false,
     }));
 
-    scanning::setup_scan_button(widgets, Rc::clone(&state));
     connection::setup_wifi_toggle(widgets, Rc::clone(&state));
     connection::setup_network_click(widgets, Rc::clone(&state));
     connection::setup_password_actions(widgets, Rc::clone(&state));
@@ -63,7 +78,7 @@ pub fn setup(
     scanning::setup_scan_on_show(widgets, Rc::clone(&state), scan_requested);
     bluetooth::setup_bluetooth(widgets, Rc::clone(&state));
     bt_live_updates::setup_bt_live_updates(widgets, Rc::clone(&state));
-    setup_bt_scan_button(widgets, Rc::clone(&state));
+    setup_scan_button_dispatch(widgets, Rc::clone(&state));
     setup_wifi_tab_sync(widgets, Rc::clone(&state));
     let reload_requested = panel_state.reload_requested.clone();
     shortcuts::setup_escape_key(widgets, panel_state);
@@ -107,48 +122,40 @@ async fn refresh_list(
     }
 }
 
-/// Wire the scan button to also trigger BT discovery when on BT tab.
-fn setup_bt_scan_button(widgets: &PanelWidgets, state: Rc<RefCell<AppState>>) {
+/// Dispatch scan button clicks to Wi-Fi or Bluetooth based on active tab.
+fn setup_scan_button_dispatch(widgets: &PanelWidgets, state: Rc<RefCell<AppState>>) {
+    let scan_btn = widgets.scan_button.clone();
     let bt_tab = widgets.bt_tab.clone();
     let bt_list_box = widgets.bt_list_box.clone();
     let bt_spinner = widgets.bt_spinner.clone();
     let bt_scroll = widgets.bt_scroll.clone();
+    let wifi_list_box = widgets.network_list_box.clone();
+    let wifi_spinner = widgets.spinner.clone();
+    let wifi_scroll = widgets.network_scroll.clone();
     let status = widgets.status_label.clone();
-    let scan_btn = widgets.scan_button.clone();
 
-    // We prepend a handler that checks if BT tab is active.
-    // If so, it does BT scan instead of WiFi scan.
-    scan_btn.connect_clicked(move |btn| {
-        if !bt_tab.is_active() {
-            return; // Let the WiFi scan handler deal with it
+    let scan_btn_cb = scan_btn.clone();
+    scan_btn.connect_clicked(move |_btn| {
+        if bt_tab.is_active() {
+            bluetooth::run_manual_scan(
+                Rc::clone(&state),
+                bt_tab.clone(),
+                bt_list_box.clone(),
+                status.clone(),
+                scan_btn_cb.clone(),
+                bt_spinner.clone(),
+                bt_scroll.clone(),
+            );
+        } else {
+            scanning::run_manual_scan(
+                Rc::clone(&state),
+                wifi_list_box.clone(),
+                status.clone(),
+                scan_btn_cb.clone(),
+                wifi_spinner.clone(),
+                wifi_scroll.clone(),
+            );
         }
-
-        btn.set_sensitive(false);
-        let state = Rc::clone(&state);
-        let bt_list_box = bt_list_box.clone();
-        let bt_spinner = bt_spinner.clone();
-        let bt_scroll = bt_scroll.clone();
-        let status = status.clone();
-        let btn = btn.clone();
-
-        bt_spinner.set_visible(true);
-        bt_spinner.set_spinning(true);
-        bt_scroll.set_visible(false);
-
-        gtk4::glib::spawn_future_local(async move {
-            if let Some(bt) = state.borrow().bluetooth.clone() {
-                if let Err(e) = bt.start_discovery().await {
-                    log::warn!("BT scan failed: {e}");
-                }
-                gtk4::glib::timeout_future(std::time::Duration::from_millis(2000)).await;
-                bluetooth::refresh_bt_list(&state, &bt_list_box, &status).await;
-            }
-
-            bt_spinner.set_spinning(false);
-            bt_spinner.set_visible(false);
-            bt_scroll.set_visible(true);
-            btn.set_sensitive(true);
-        });
     });
 }
 

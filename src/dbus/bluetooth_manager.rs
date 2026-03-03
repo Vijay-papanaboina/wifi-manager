@@ -115,6 +115,12 @@ impl BluetoothManager {
         }
     }
 
+    /// Check if discovery is currently active.
+    pub async fn is_discovering(&self) -> zbus::Result<bool> {
+        let adapter = self.adapter_proxy().await?;
+        adapter.discovering().await
+    }
+
     // ========================================================================
     // Device enumeration
     // ========================================================================
