@@ -430,7 +430,7 @@ fn start_bt_background_tasks(
     st.bt_live_refresh_source = Some(live_refresh_id);
 }
 
-fn stop_bt_background_tasks(state: &Rc<RefCell<AppState>>) {
+pub(super) fn stop_bt_background_tasks(state: &Rc<RefCell<AppState>>) {
     let mut st = state.borrow_mut();
     if let Some(id) = st.bt_auto_scan_source.take() {
         id.remove();
@@ -439,6 +439,40 @@ fn stop_bt_background_tasks(state: &Rc<RefCell<AppState>>) {
         id.remove();
     }
     st.bt_auto_scan_active = false;
+}
+
+pub(super) async fn resume_bt_background_tasks(
+    state: Rc<RefCell<AppState>>,
+    bt_tab: gtk4::ToggleButton,
+    list_box: gtk4::ListBox,
+    status: gtk4::Label,
+) {
+    if !bt_tab.is_active() {
+        return;
+    }
+    let bt = match get_bt(&state) {
+        Some(bt) => bt,
+        None => return,
+    };
+    let powered = match bt.is_powered().await {
+        Ok(p) => p,
+        Err(e) => {
+            log::error!("Failed to get BT power state: {e}");
+            true
+        }
+    };
+    if !powered {
+        return;
+    }
+    start_bt_background_tasks(state, bt_tab, list_box, status);
+}
+
+pub(super) async fn stop_bt_discovery(state: Rc<RefCell<AppState>>) {
+    if let Some(bt) = get_bt(&state) {
+        if let Err(e) = bt.stop_discovery().await {
+            log::warn!("BT discovery stop failed: {e}");
+        }
+    }
 }
 
 fn schedule_bt_auto_scan(

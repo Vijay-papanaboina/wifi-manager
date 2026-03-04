@@ -95,10 +95,11 @@ pub fn setup(
         );
     }
     let reload_requested = panel_state.reload_requested.clone();
-    shortcuts::setup_escape_key(widgets, panel_state);
+    shortcuts::setup_escape_key(widgets, panel_state.clone());
     shortcuts::setup_reload_on_request(widgets, Rc::clone(&state), reload_requested);
     scanning::setup_initial_state(widgets, Rc::clone(&state));
     controls::setup_controls(widgets);
+    setup_visibility_pause(widgets, Rc::clone(&state), panel_state);
 }
 
 /// Clone the WifiManager out of the RefCell (avoids holding borrow across await).
@@ -218,5 +219,62 @@ fn setup_wifi_tab_sync(widgets: &PanelWidgets, state: Rc<RefCell<AppState>>) {
             list_box.clone(),
             status.clone(),
         );
+    });
+}
+
+/// Stop background scans when the panel is hidden; resume when shown.
+fn setup_visibility_pause(
+    widgets: &PanelWidgets,
+    state: Rc<RefCell<AppState>>,
+    panel_state: crate::daemon::PanelState,
+) {
+    use std::sync::atomic::Ordering;
+
+    let last_visible = Rc::new(RefCell::new(panel_state.visible.load(Ordering::Relaxed)));
+    let wifi_tab = widgets.wifi_tab.clone();
+    let bt_tab = widgets.bt_tab.clone();
+    let wifi_list_box = widgets.network_list_box.clone();
+    let bt_list_box = widgets.bt_list_box.clone();
+    let status = widgets.status_label.clone();
+
+    glib::timeout_add_local(std::time::Duration::from_millis(200), move || {
+        let visible = panel_state.visible.load(Ordering::Relaxed);
+        let mut last = last_visible.borrow_mut();
+        if *last != visible {
+            *last = visible;
+            if !visible {
+                scanning::stop_wifi_auto_scan(&state);
+                bluetooth::stop_bt_background_tasks(&state);
+                let state_bt = Rc::clone(&state);
+                glib::spawn_future_local(async move {
+                    bluetooth::stop_bt_discovery(state_bt).await;
+                });
+            } else {
+                if wifi_tab.is_active() {
+                    scanning::start_wifi_auto_scan(
+                        Rc::clone(&state),
+                        wifi_tab.clone(),
+                        wifi_list_box.clone(),
+                        status.clone(),
+                    );
+                }
+                if bt_tab.is_active() {
+                    let state_bt = Rc::clone(&state);
+                    let bt_tab = bt_tab.clone();
+                    let bt_list_box = bt_list_box.clone();
+                    let status = status.clone();
+                    glib::spawn_future_local(async move {
+                        bluetooth::resume_bt_background_tasks(
+                            state_bt,
+                            bt_tab,
+                            bt_list_box,
+                            status,
+                        )
+                        .await;
+                    });
+                }
+            }
+        }
+        glib::ControlFlow::Continue
     });
 }
