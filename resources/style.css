@@ -16,7 +16,6 @@ window:not(tooltip) > box {
   background: rgba(20, 22, 30, 0.95);
   border-radius: 16px;
   border: 1px solid rgba(255, 255, 255, 0.08);
-  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.6);
   padding: 0;
 }
 
