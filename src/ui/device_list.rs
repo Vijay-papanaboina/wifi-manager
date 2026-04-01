@@ -1,7 +1,7 @@
 //! Scrollable list of Bluetooth devices.
 
 use gtk4::prelude::*;
-use gtk4::{Label, ListBox, PolicyType, ScrolledWindow, SelectionMode};
+use gtk4::{Align, Label, ListBox, ListBoxRow, PolicyType, ScrolledWindow, SelectionMode};
 use crate::ui::window::{MIN_LIST_HEIGHT, MAX_LIST_HEIGHT};
 
 use super::device_row;
@@ -47,7 +47,15 @@ pub fn populate_device_list(
         return;
     }
 
+    let has_paired = devices.iter().any(|d| d.paired);
+    let mut inserted_separator = false;
+
     for device in devices {
+        if has_paired && !device.paired && !inserted_separator {
+            list_box.append(&build_separator_row("Available devices"));
+            inserted_separator = true;
+        }
+
         let on_remove = on_remove.clone();
         let on_menu_active = on_menu_active.clone();
 
@@ -62,4 +70,21 @@ pub fn populate_device_list(
         );
         list_box.append(&row);
     }
+}
+
+fn build_separator_row(label: &str) -> ListBoxRow {
+    let row = ListBoxRow::new();
+    row.add_css_class("list-separator-row");
+    row.set_selectable(false);
+    row.set_activatable(false);
+
+    let title = Label::new(Some(label));
+    title.add_css_class("list-separator");
+    title.set_halign(Align::Start);
+    title.set_margin_start(16);
+    title.set_margin_end(16);
+    title.set_margin_top(6);
+    title.set_margin_bottom(4);
+    row.set_child(Some(&title));
+    row
 }
