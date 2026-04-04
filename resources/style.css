@@ -335,8 +335,17 @@ switch slider {
   font-weight: 400;
 }
 
+.device-pending {
+  color: rgba(255, 255, 255, 0.75);
+  font-weight: 500;
+}
+
 .device-row.connected .device-subtitle {
   color: rgba(255, 255, 255, 0.7);
+}
+
+.device-row.pending {
+  background: rgba(255, 255, 255, 0.04);
 }
 
 .device-icon {

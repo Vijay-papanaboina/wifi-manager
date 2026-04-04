@@ -2,6 +2,7 @@
 
 use gtk4::prelude::*;
 use gtk4::{Align, Label, ListBox, ListBoxRow, PolicyType, ScrolledWindow, SelectionMode};
+use std::collections::HashMap;
 use crate::ui::window::{MIN_LIST_HEIGHT, MAX_LIST_HEIGHT};
 
 use super::device_row;
@@ -32,9 +33,10 @@ pub fn build_device_list() -> (ScrolledWindow, ListBox) {
 pub fn populate_device_list(
     list_box: &ListBox,
     devices: &[BluetoothDevice],
+    pending: &HashMap<String, String>,
     on_remove: std::rc::Rc<dyn Fn(String)>,
     on_menu_active: std::rc::Rc<dyn Fn(bool)>,
-) {
+) -> Vec<Option<String>> {
     // Remove all existing rows
     while let Some(row) = list_box.first_child() {
         list_box.remove(&row);
@@ -44,23 +46,27 @@ pub fn populate_device_list(
         let empty = Label::new(Some("No devices found"));
         empty.add_css_class("empty-label");
         list_box.append(&empty);
-        return;
+        return Vec::new();
     }
 
     let has_paired = devices.iter().any(|d| d.paired);
     let mut inserted_separator = false;
+    let mut row_paths: Vec<Option<String>> = Vec::new();
 
     for device in devices {
         if has_paired && !device.paired && !inserted_separator {
             list_box.append(&build_separator_row("Available devices"));
             inserted_separator = true;
+            row_paths.push(None);
         }
 
         let on_remove = on_remove.clone();
         let on_menu_active = on_menu_active.clone();
 
+        let pending_label = pending.get(&device.device_path).cloned();
         let row = device_row::build_device_row(
             device,
+            pending_label,
             move |device_path| {
                 on_remove(device_path);
             },
@@ -69,7 +75,10 @@ pub fn populate_device_list(
             },
         );
         list_box.append(&row);
+        row_paths.push(Some(device.device_path.clone()));
     }
+
+    row_paths
 }
 
 fn build_separator_row(label: &str) -> ListBoxRow {

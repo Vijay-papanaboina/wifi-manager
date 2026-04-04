@@ -10,6 +10,7 @@ use crate::dbus::bluetooth_device::BluetoothDevice;
 /// Layout: [device_icon] [Name / Subtitle] [menu_btn]
 pub fn build_device_row(
     device: &BluetoothDevice,
+    pending_label: Option<String>,
     on_remove: impl Fn(String) + 'static,
     on_menu_active: impl Fn(bool) + 'static,
 ) -> ListBoxRow {
@@ -20,6 +21,9 @@ pub fn build_device_row(
         row.add_css_class("connected");
     } else if device.paired {
         row.add_css_class("paired");
+    }
+    if pending_label.is_some() {
+        row.add_css_class("pending");
     }
 
     let hbox = GtkBox::new(Orientation::Horizontal, 12);
@@ -59,9 +63,12 @@ pub fn build_device_row(
     }
 
     // Subtitle line (status)
-    let subtitle_text = device_subtitle(device);
+    let subtitle_text = device_subtitle(device, pending_label.as_deref());
     let subtitle_label = Label::new(Some(&subtitle_text));
     subtitle_label.add_css_class("device-subtitle");
+    if pending_label.is_some() {
+        subtitle_label.add_css_class("device-pending");
+    }
     subtitle_label.set_halign(gtk4::Align::Start);
     subtitle_label.set_ellipsize(gtk4::pango::EllipsizeMode::End);
 
@@ -121,7 +128,7 @@ pub fn build_device_row(
 }
 
 /// Build the subtitle text for a Bluetooth device.
-fn device_subtitle(device: &BluetoothDevice) -> String {
+fn device_subtitle(device: &BluetoothDevice, pending: Option<&str>) -> String {
     let mut parts = Vec::new();
 
     parts.push(device.category.to_string());
@@ -130,6 +137,10 @@ fn device_subtitle(device: &BluetoothDevice) -> String {
         parts.push("Connected".to_string());
     } else if device.paired {
         parts.push("Paired".to_string());
+    }
+
+    if let Some(pending) = pending {
+        parts.push(pending.to_string());
     }
 
     parts.join(" · ")

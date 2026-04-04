@@ -15,6 +15,7 @@ mod scanning;
 mod shortcuts;
 
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::rc::Rc;
 
 use gtk4::glib;
@@ -38,6 +39,10 @@ struct AppState {
     bluetooth: Option<BluetoothManager>,
     /// Bluetooth device list — refreshed on BT scan.
     bt_devices: Vec<BluetoothDevice>,
+    /// Row-to-device-path mapping for BT list (None for separators).
+    bt_row_paths: Vec<Option<String>>,
+    /// Pending Bluetooth actions by device path (label).
+    bt_pending: HashMap<String, String>,
     /// Whether a Bluetooth scan is currently running.
     bt_scan_in_progress: bool,
     /// Periodic auto-scan timer for Bluetooth (when BT tab is active).
@@ -54,6 +59,8 @@ struct AppState {
     wifi_auto_scan_source: Option<glib::SourceId>,
 }
 
+
+
 /// Set up all event handlers, kick off the initial scan, start live updates,
 /// and wire scan-on-show polling.
 pub fn setup(
@@ -68,6 +75,8 @@ pub fn setup(
         selected_index: None,
         bluetooth: None,
         bt_devices: Vec::new(),
+        bt_row_paths: Vec::new(),
+        bt_pending: HashMap::new(),
         bt_scan_in_progress: false,
         bt_auto_scan_source: None,
         bt_live_refresh_source: None,

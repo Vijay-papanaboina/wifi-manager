@@ -92,13 +92,13 @@ impl BluetoothDevice {
         self.rssi != 0
     }
 
-    /// Sort key: connected first, then paired, then by name.
+    /// Sort key: paired first, then connected, then by name.
     pub fn sort_key(&self) -> (u8, u8, String) {
-        let connected_order = if self.connected { 0 } else { 1 };
         let paired_order = if self.paired { 0 } else { 1 };
+        let connected_order = if self.connected { 0 } else { 1 };
         (
-            connected_order,
             paired_order,
+            connected_order,
             self.display_name.to_lowercase(),
         )
     }
