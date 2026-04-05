@@ -34,7 +34,7 @@ struct AppState {
     /// The network list — refreshed on scan.
     networks: Vec<Network>,
     /// Index of the currently selected network (for password entry).
-    selected_index: Option<usize>,
+    selected_ssid: Option<String>,
     /// Bluetooth manager (None if no adapter found).
     bluetooth: Option<BluetoothManager>,
     /// Bluetooth device list — refreshed on BT scan.
@@ -57,6 +57,10 @@ struct AppState {
     wifi_scan_in_progress: bool,
     /// Periodic auto-scan timer for Wi-Fi (when Wi-Fi tab is active).
     wifi_auto_scan_source: Option<glib::SourceId>,
+    /// Row-to-SSID mapping for Wi-Fi list (None for separators).
+    wifi_row_ssids: Vec<Option<String>>,
+    /// Pending Wi-Fi actions by SSID.
+    wifi_pending: HashMap<String, String>,
 }
 
 
@@ -72,7 +76,7 @@ pub fn setup(
     let state = Rc::new(RefCell::new(AppState {
         wifi,
         networks: Vec::new(),
-        selected_index: None,
+        selected_ssid: None,
         bluetooth: None,
         bt_devices: Vec::new(),
         bt_row_paths: Vec::new(),
@@ -84,6 +88,8 @@ pub fn setup(
         bt_menu_open: false,
         wifi_scan_in_progress: false,
         wifi_auto_scan_source: None,
+        wifi_row_ssids: Vec::new(),
+        wifi_pending: HashMap::new(),
     }));
 
     connection::setup_wifi_toggle(widgets, Rc::clone(&state));
@@ -135,9 +141,43 @@ async fn refresh_list(
             }
 
             let config = crate::config::Config::load();
-            network_list::populate_network_list(list_box, &nets, &config, &wifi, status);
+            let on_forget = {
+                let state = Rc::clone(state);
+                let list_box = list_box.clone();
+                let status = status.clone();
+                std::rc::Rc::new(move |ssid: String| {
+                    let state = Rc::clone(&state);
+                    let list_box = list_box.clone();
+                    let status = status.clone();
+                    glib::spawn_future_local(async move {
+                        let wifi = get_wifi(&state);
+                        status.set_text(&format!("Forgetting {}...", ssid));
+                        match wifi.forget_network(&ssid).await {
+                            Ok(_) => {
+                                status.set_text(&format!("Forgot {}", ssid));
+                                refresh_list(&state, &list_box, &status).await;
+                            }
+                            Err(e) => {
+                                log::error!("Forget failed: {e}");
+                                status.set_text(&format!("Failed to forget: {}", e));
+                            }
+                        }
+                    });
+                })
+            };
+            let row_ssids = network_list::populate_network_list(
+                list_box,
+                &nets,
+                &config,
+                &wifi,
+                status,
+                &state.borrow().wifi_pending,
+                on_forget,
+            );
             log::info!("Network list refreshed: {} networks", nets.len());
-            state.borrow_mut().networks = nets;
+            let mut st = state.borrow_mut();
+            st.networks = nets;
+            st.wifi_row_ssids = row_ssids;
         }
         Err(e) => {
             log::error!("Failed to get networks: {e}");

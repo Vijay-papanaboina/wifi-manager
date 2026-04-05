@@ -28,6 +28,7 @@ fn signal_icon(strength: u8, icons: &[String; 4]) -> (&str, &'static str) {
 pub fn build_network_row(
     network: &Network,
     config: &crate::config::Config,
+    pending_label: Option<&str>,
     on_forget: impl Fn(String) + 'static,
 ) -> ListBoxRow {
     let row = ListBoxRow::new();
@@ -63,7 +64,7 @@ pub fn build_network_row(
     ssid_label.set_halign(gtk4::Align::Start);
     ssid_label.set_ellipsize(gtk4::pango::EllipsizeMode::End);
 
-    // Subtitle line (Band · Connectivity)
+    // Subtitle line (Band · Connectivity · Pending)
     let mut subtitle_parts = Vec::new();
     
     if network.band == Band::FiveGhz {
@@ -73,10 +74,16 @@ pub fn build_network_row(
     if network.is_connected {
         subtitle_parts.push("Connected".to_string());
     }
+    if let Some(pending) = pending_label {
+        subtitle_parts.push(pending.to_string());
+    }
 
     let subtitle_text = subtitle_parts.join(" · ");
     let subtitle_label = Label::new(Some(&subtitle_text));
     subtitle_label.add_css_class("network-subtitle");
+    if pending_label.is_some() {
+        subtitle_label.add_css_class("network-pending");
+    }
     subtitle_label.set_halign(gtk4::Align::Start);
     subtitle_label.set_ellipsize(gtk4::pango::EllipsizeMode::End);
 
