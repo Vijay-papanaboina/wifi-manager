@@ -16,7 +16,11 @@ use super::{AppState, get_wifi, refresh_list};
 /// - Wireless AccessPointAdded/Removed — fires when APs appear/disappear
 ///
 /// On any change, the network list is auto-refreshed after a brief debounce.
-pub(super) fn setup_live_updates(widgets: &PanelWidgets, state: Rc<RefCell<AppState>>) {
+pub(super) fn setup_live_updates(
+    widgets: &PanelWidgets,
+    state: Rc<RefCell<AppState>>,
+    panel_visible: std::sync::Arc<std::sync::atomic::AtomicBool>,
+) {
     let list_box = widgets.network_list_box.clone();
     let status = widgets.status_label.clone();
     let switch = widgets.wifi_switch.clone();
@@ -71,13 +75,31 @@ pub(super) fn setup_live_updates(widgets: &PanelWidgets, state: Rc<RefCell<AppSt
                     args.reason
                 );
 
+                // NM device state constants:
+                //   20  = Unavailable  (e.g. Wi-Fi radio off)
+                //   30  = Disconnected
+                //   100 = Activated (connected)
+                let new_state = args.new_state;
+
+                let is_hidden = !panel_visible.load(std::sync::atomic::Ordering::Relaxed);
+
+                if new_state == 100 {
+                    // Connected — stop the background reconnect loop immediately.
+                    super::scanning::stop_wifi_bg_reconnect(&state);
+                    log::info!("StateChanged: connected — bg reconnect loop stopped");
+                } else if (new_state == 30 || new_state == 20) && is_hidden {
+                    // Disconnected while panel is hidden — start the loop.
+                    super::scanning::start_wifi_bg_reconnect(Rc::clone(&state));
+                    log::info!("StateChanged: disconnected while hidden — bg reconnect loop started");
+                }
+
                 // Update WiFi switch state
                 match wifi.is_wifi_enabled().await {
                     Ok(enabled) => switch.set_active(enabled),
                     Err(e) => log::error!("Failed to check WiFi state: {e}"),
                 }
 
-                // Brief debounce then refresh
+                // Brief debounce then refresh UI
                 glib::timeout_future(std::time::Duration::from_millis(500)).await;
                 refresh_list(&state, &list_box, &status).await;
             }

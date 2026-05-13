@@ -57,6 +57,9 @@ struct AppState {
     wifi_scan_in_progress: bool,
     /// Periodic auto-scan timer for Wi-Fi (when Wi-Fi tab is active).
     wifi_auto_scan_source: Option<glib::SourceId>,
+    /// Background 60-second reconnect scan timer.
+    /// Active only when the panel is hidden AND Wi-Fi is disconnected.
+    wifi_bg_reconnect_source: Option<glib::SourceId>,
     /// Row-to-SSID mapping for Wi-Fi list (None for separators).
     wifi_row_ssids: Vec<Option<String>>,
     /// Pending Wi-Fi actions by SSID.
@@ -88,6 +91,7 @@ pub fn setup(
         bt_menu_open: false,
         wifi_scan_in_progress: false,
         wifi_auto_scan_source: None,
+        wifi_bg_reconnect_source: None,
         wifi_row_ssids: Vec::new(),
         wifi_pending: HashMap::new(),
     }));
@@ -95,7 +99,7 @@ pub fn setup(
     connection::setup_wifi_toggle(widgets, Rc::clone(&state));
     connection::setup_network_click(widgets, Rc::clone(&state));
     connection::setup_password_actions(widgets, Rc::clone(&state));
-    live_updates::setup_live_updates(widgets, Rc::clone(&state));
+    live_updates::setup_live_updates(widgets, Rc::clone(&state), panel_state.visible.clone());
     scanning::setup_scan_on_show(widgets, Rc::clone(&state), scan_requested);
     bluetooth::setup_bluetooth(widgets, Rc::clone(&state));
     bt_live_updates::setup_bt_live_updates(widgets, Rc::clone(&state));
@@ -293,10 +297,48 @@ fn setup_visibility_pause(
             *last = visible;
             if !visible {
                 scanning::stop_wifi_auto_scan(&state);
+                // Stop bg reconnect too — panel is opening so fast loop takes over.
+                scanning::stop_wifi_bg_reconnect(&state);
                 bluetooth::stop_bt_background_tasks(&state);
                 let state_bt = Rc::clone(&state);
                 glib::spawn_future_local(async move {
                     bluetooth::stop_bt_discovery(state_bt).await;
+                });
+
+                // If Wi-Fi is currently disconnected, start the slow background
+                // reconnect loop so NM can find and join a saved network.
+                let state_bg = Rc::clone(&state);
+                glib::spawn_future_local(async move {
+                    let wifi = get_wifi(&state_bg);
+                    // NM device state 100 = Activated (connected).
+                    // We check by asking for the active connection path;
+                    // a path of "/" means no active connection.
+                    let is_connected = match wifi.connection().call_method(
+                        Some("org.freedesktop.NetworkManager"),
+                        wifi.wifi_device_path(),
+                        Some("org.freedesktop.DBus.Properties"),
+                        "Get",
+                        &(
+                            "org.freedesktop.NetworkManager.Device",
+                            "ActiveConnection",
+                        ),
+                    ).await {
+                        Ok(msg) => {
+                            let path: zbus::zvariant::OwnedObjectPath =
+                                msg.body().deserialize().unwrap_or_else(|_| {
+                                    zbus::zvariant::OwnedObjectPath::try_from("/").unwrap()
+                                });
+                            path.as_str() != "/"
+                        }
+                        Err(_) => false,
+                    };
+
+                    if !is_connected {
+                        log::info!("Panel hidden while disconnected — starting bg reconnect loop");
+                        scanning::start_wifi_bg_reconnect(state_bg);
+                    } else {
+                        log::info!("Panel hidden while connected — no bg reconnect needed");
+                    }
                 });
             } else {
                 if wifi_tab.is_active() {

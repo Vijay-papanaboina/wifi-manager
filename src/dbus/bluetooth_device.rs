@@ -9,6 +9,7 @@ use std::fmt;
 pub enum DeviceCategory {
     Audio,
     Input,
+    Mouse,
     Computer,
     Phone,
     Peripheral,
@@ -20,6 +21,7 @@ impl fmt::Display for DeviceCategory {
         match self {
             DeviceCategory::Audio => write!(f, "Audio"),
             DeviceCategory::Input => write!(f, "Input"),
+            DeviceCategory::Mouse => write!(f, "Mouse"),
             DeviceCategory::Computer => write!(f, "Computer"),
             DeviceCategory::Phone => write!(f, "Phone"),
             DeviceCategory::Peripheral => write!(f, "Peripheral"),
@@ -33,6 +35,8 @@ impl DeviceCategory {
     pub fn from_icon_hint(icon: &str) -> Self {
         if icon.starts_with("audio") {
             DeviceCategory::Audio
+        } else if icon == "input-mouse" {
+            DeviceCategory::Mouse
         } else if icon.starts_with("input") {
             DeviceCategory::Input
         } else if icon.starts_with("computer") {
@@ -55,7 +59,8 @@ impl DeviceCategory {
     pub fn default_icon(&self) -> &'static str {
         match self {
             DeviceCategory::Audio => "󰋋",       // headphones
-            DeviceCategory::Input => "󰌌",       // keyboard
+            DeviceCategory::Mouse => "󰍽",       // mouse
+            DeviceCategory::Input => "󰌌",       // input
             DeviceCategory::Computer => "󰍹",    // monitor/desktop
             DeviceCategory::Phone => "󰏲",       // phone
             DeviceCategory::Peripheral => "󰐻",  // device

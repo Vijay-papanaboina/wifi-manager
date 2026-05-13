@@ -12,6 +12,8 @@ use super::{AppState, get_wifi, refresh_list};
 
 const WIFI_SCAN_RESULT_WAIT_MS: u64 = 2500;
 const WIFI_AUTO_SCAN_INTERVAL_MS: u64 = 15000;
+/// Interval for the background reconnect scan when panel is hidden and disconnected.
+const WIFI_BG_RECONNECT_INTERVAL_MS: u64 = 60_000;
 
 /// Poll the scan_requested flag and trigger scan+refresh when set.
 /// This runs on the GTK main thread via glib::timeout_add_local.
@@ -162,12 +164,76 @@ pub(super) fn start_wifi_auto_scan(
     );
 
     state.borrow_mut().wifi_auto_scan_source = Some(scan_id);
+    log::info!("Fast UI Wi-Fi scan loop started (interval: 15 s)");
 }
 
 pub(super) fn stop_wifi_auto_scan(state: &Rc<RefCell<AppState>>) {
     let mut st = state.borrow_mut();
     if let Some(id) = st.wifi_auto_scan_source.take() {
         id.remove();
+        log::info!("Fast UI Wi-Fi scan loop stopped");
+    }
+}
+
+/// Start a slow background scan loop (every 60 s) to help NetworkManager
+/// find and autoconnect to saved networks while the panel is hidden.
+///
+/// Fires an immediate scan first so the first reconnect attempt is instant,
+/// not delayed by the full interval. No UI updates are performed — NM's own
+/// autoconnect logic handles the actual connection once it sees the network.
+pub(super) fn start_wifi_bg_reconnect(state: Rc<RefCell<AppState>>) {
+    // Guard: only one background loop at a time.
+    if state.borrow().wifi_bg_reconnect_source.is_some() {
+        return;
+    }
+
+    // Fire an immediate scan right now — don't wait 60 s for the first one.
+    glib::spawn_future_local({
+        let state = Rc::clone(&state);
+        async move {
+            let wifi = get_wifi(&state);
+            if let Err(e) = wifi.request_scan().await {
+                log::debug!("BG reconnect: immediate scan failed (may not be an error): {e}");
+            } else {
+                log::info!("BG reconnect: immediate scan triggered");
+            }
+        }
+    });
+
+    // Then repeat every 60 s until the timer is removed.
+    let scan_id = glib::timeout_add_local(
+        std::time::Duration::from_millis(WIFI_BG_RECONNECT_INTERVAL_MS),
+        {
+            let state = Rc::clone(&state);
+            move || {
+                // If the source was cleared externally, stop the timer.
+                if state.borrow().wifi_bg_reconnect_source.is_none() {
+                    return glib::ControlFlow::Break;
+                }
+                let state_clone = Rc::clone(&state);
+                glib::spawn_future_local(async move {
+                    let wifi = get_wifi(&state_clone);
+                    if let Err(e) = wifi.request_scan().await {
+                        log::debug!("BG reconnect: periodic scan failed: {e}");
+                    } else {
+                        log::info!("BG reconnect: periodic scan triggered");
+                    }
+                });
+                glib::ControlFlow::Continue
+            }
+        },
+    );
+
+    state.borrow_mut().wifi_bg_reconnect_source = Some(scan_id);
+    log::info!("BG reconnect loop started (interval: 60 s)");
+}
+
+/// Stop the background reconnect scan loop.
+pub(super) fn stop_wifi_bg_reconnect(state: &Rc<RefCell<AppState>>) {
+    let mut st = state.borrow_mut();
+    if let Some(id) = st.wifi_bg_reconnect_source.take() {
+        id.remove();
+        log::info!("BG reconnect loop stopped");
     }
 }
 
