@@ -3,6 +3,7 @@ mod config;
 mod controls;
 mod daemon;
 mod dbus;
+mod state;
 mod ui;
 
 use clap::Parser;

@@ -188,6 +188,21 @@ impl VolumeManager {
             log::warn!("Cannot set volume: No default PulseAudio sink available");
         }
     }
+
+    pub fn set_mute(self: &Rc<Self>, mute: bool) {
+        let sink_name = self.default_sink_name.borrow().clone();
+        if let Some(name) = sink_name {
+            let ctx = self.context.borrow();
+            let mut intro = ctx.introspect();
+            intro.set_sink_mute_by_name(&name, mute, Some(Box::new(move |success| {
+                if !success {
+                    error!("Failed to set PulseAudio mute state on sink");
+                }
+            })));
+        } else {
+            log::warn!("Cannot set mute: No default PulseAudio sink available");
+        }
+    }
 }
 
 impl Drop for VolumeManager {

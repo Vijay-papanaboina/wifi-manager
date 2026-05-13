@@ -29,7 +29,7 @@ pub struct BrightnessManager {
 
 impl BrightnessManager {
     /// The minimum allowed brightness percentage to prevent the screen from turning completely off.
-    pub const MIN_BRIGHTNESS_PERCENT: f64 = 5.0;
+    pub const MIN_BRIGHTNESS_PERCENT: f64 = 1.0;
 
     /// Creates a new BrightnessManager. Discovers the hardware path dynamically.
     pub async fn new() -> ZbusResult<Self> {

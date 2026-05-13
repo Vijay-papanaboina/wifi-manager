@@ -47,9 +47,12 @@ fn show_error_dialog(window: Option<&Window>, message: &str) {
 pub struct ControlsPanel {
     container: Box,
     brightness_scale: Scale,
+    brightness_btn: Button,
     volume_scale: Scale,
     volume_icon: Image,
+    volume_btn: Button,
     night_mode_scale: Scale,
+    night_mode_btn: Button,
     toggle_button: ToggleButton,
 }
 
@@ -62,9 +65,12 @@ impl Default for ControlsPanel {
 impl ControlsPanel {
     pub fn container(&self) -> &Box { &self.container }
     pub fn brightness_scale(&self) -> &Scale { &self.brightness_scale }
+    pub fn brightness_btn(&self) -> &Button { &self.brightness_btn }
     pub fn volume_scale(&self) -> &Scale { &self.volume_scale }
     pub fn volume_icon(&self) -> &Image { &self.volume_icon }
+    pub fn volume_btn(&self) -> &Button { &self.volume_btn }
     pub fn night_mode_scale(&self) -> &Scale { &self.night_mode_scale }
+    pub fn night_mode_btn(&self) -> &Button { &self.night_mode_btn }
     pub fn toggle_button(&self) -> &ToggleButton { &self.toggle_button }
 
     pub fn new() -> Self {
@@ -119,11 +125,14 @@ impl ControlsPanel {
             .orientation(Orientation::Horizontal)
             .spacing(12)
             .build();
-            
-        let brightness_icon = Image::builder()
+
+        // Clickable brightness icon: click to toggle between 1% dim and last custom level
+        let brightness_btn = Button::builder()
             .icon_name("display-brightness-symbolic")
-            .pixel_size(16)
+            .tooltip_text("Click to toggle minimum brightness")
             .build();
+        brightness_btn.add_css_class("flat");
+        brightness_btn.add_css_class("circular");
             
         let brightness_scale = Scale::builder()
             .orientation(Orientation::Horizontal)
@@ -131,10 +140,10 @@ impl ControlsPanel {
             .draw_value(true)
             .value_pos(gtk4::PositionType::Right)
             .tooltip_text("Brightness")
-            .adjustment(&gtk4::Adjustment::new(100.0, 5.0, 100.0, 1.0, 10.0, 0.0))
+            .adjustment(&gtk4::Adjustment::new(100.0, 1.0, 100.0, 1.0, 10.0, 0.0))
             .build();
 
-        brightness_row.append(&brightness_icon);
+        brightness_row.append(&brightness_btn);
         brightness_row.append(&brightness_scale);
 
         // Volume Row
@@ -142,10 +151,20 @@ impl ControlsPanel {
             .orientation(Orientation::Horizontal)
             .spacing(12)
             .build();
-            
+
+        // Clickable volume icon: click to toggle mute
+        let volume_btn = Button::builder()
+            .icon_name("audio-volume-high-symbolic")
+            .tooltip_text("Click to toggle mute")
+            .build();
+        volume_btn.add_css_class("flat");
+        volume_btn.add_css_class("circular");
+
+        // Hidden Image widget kept for dynamic icon updates from volume callbacks
         let volume_icon = Image::builder()
             .icon_name("audio-volume-high-symbolic")
             .pixel_size(16)
+            .visible(false)
             .build();
             
         let volume_scale = Scale::builder()
@@ -157,7 +176,7 @@ impl ControlsPanel {
             .adjustment(&gtk4::Adjustment::new(0.0, 0.0, 100.0, 1.0, 10.0, 0.0))
             .build();
 
-        volume_row.append(&volume_icon);
+        volume_row.append(&volume_btn);
         volume_row.append(&volume_scale);
 
         // Night Mode Row
@@ -165,11 +184,14 @@ impl ControlsPanel {
             .orientation(Orientation::Horizontal)
             .spacing(12)
             .build();
-            
-        let night_mode_icon = Image::builder()
-            .icon_name("weather-clear-night-symbolic")
-            .pixel_size(16)
+
+        // Clickable moon icon: click to toggle Night Mode on/off
+        let night_mode_btn = Button::builder()
+            .icon_name("night-light-symbolic")
+            .tooltip_text("Click to toggle Night Mode")
             .build();
+        night_mode_btn.add_css_class("flat");
+        night_mode_btn.add_css_class("circular");
             
         // Map 0 -> 6500K (coolest/no effect), 3500 -> 3000K (warmest)
         let night_mode_scale = Scale::builder()
@@ -180,8 +202,9 @@ impl ControlsPanel {
             .tooltip_text("Night Mode (Color Temperature)")
             .adjustment(&gtk4::Adjustment::new(0.0, 0.0, 3500.0, 100.0, 500.0, 0.0))
             .build();
+        night_mode_scale.set_sensitive(false); // Disabled until toggled On
 
-        night_mode_row.append(&night_mode_icon);
+        night_mode_row.append(&night_mode_btn);
         night_mode_row.append(&night_mode_scale);
 
         // Power Controls Row
@@ -268,9 +291,12 @@ impl ControlsPanel {
         Self {
             container,
             brightness_scale,
+            brightness_btn,
             volume_scale,
             volume_icon,
+            volume_btn,
             night_mode_scale,
+            night_mode_btn,
             toggle_button,
         }
     }
