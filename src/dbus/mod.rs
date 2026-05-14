@@ -4,4 +4,5 @@ pub mod bluetooth_manager;
 pub(crate) mod bluez_proxies;
 pub mod connection;
 pub mod network_manager;
+pub mod vpn_manager;
 pub(crate) mod proxies;
