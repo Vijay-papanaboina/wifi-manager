@@ -31,6 +31,8 @@ pub fn populate_vpn_list(
     active_by_conn: &std::collections::HashMap<String, VpnActive>,
     pending: &std::collections::HashMap<String, String>,
     on_toggle: std::rc::Rc<dyn Fn(String, bool)>,
+    on_edit: std::rc::Rc<dyn Fn(String, String)>,
+    on_delete: std::rc::Rc<dyn Fn(String, String)>,
 ) -> Vec<String> {
     while let Some(row) = list_box.first_child() {
         list_box.remove(&row);
@@ -53,6 +55,16 @@ pub fn populate_vpn_list(
             move |enabled| {
                 on_toggle(conn_path.clone(), enabled);
             }
+        }, {
+            let on_edit = on_edit.clone();
+            let conn_path = p.connection_path.clone();
+            let uuid = p.uuid.clone();
+            move || on_edit(conn_path.clone(), uuid.clone())
+        }, {
+            let on_delete = on_delete.clone();
+            let conn_path = p.connection_path.clone();
+            let name = p.name.clone();
+            move || on_delete(conn_path.clone(), name.clone())
         });
         list_box.append(&row);
         row_paths.push(p.connection_path.clone());

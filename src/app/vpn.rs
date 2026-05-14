@@ -3,29 +3,39 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
+use std::process::Command;
 
+use futures_util::StreamExt;
 use gtk4::glib;
 use gtk4::prelude::*;
 
+use crate::dbus::proxies::NetworkManagerProxy;
 use crate::ui::vpn_list;
 use crate::ui::window::PanelWidgets;
 
 use super::{AppState, PendingVpnAction};
 
-const VPN_REFRESH_INTERVAL_MS: u64 = 1500;
+const VPN_REFRESH_INTERVAL_MS: u64 = 5000;
 const VPN_PENDING_TIMEOUT_MS: u64 = 20_000;
 
-pub(super) fn setup_vpn(widgets: &PanelWidgets, state: Rc<RefCell<AppState>>) {
+pub(super) fn setup_vpn(
+    widgets: &PanelWidgets,
+    state: Rc<RefCell<AppState>>,
+    panel_state: crate::daemon::PanelState,
+) {
     let wifi_tab = widgets.wifi_tab.clone();
     let networks_tab = widgets.wifi_networks_tab.clone();
     let vpn_tab = widgets.wifi_vpn_tab.clone();
     let scan_btn = widgets.scan_button.clone();
     let status = widgets.status_label.clone();
     let wifi_list_box = widgets.network_list_box.clone();
+    let vpn_add_btn = widgets.vpn_add_button.clone();
+    let vpn_open_btn = widgets.vpn_open_button.clone();
 
     let vpn_list_box = widgets.vpn_list_box.clone();
     let vpn_spinner = widgets.vpn_spinner.clone();
     let vpn_scroll = widgets.vpn_scroll.clone();
+    let window = widgets.window.clone();
 
     // When VPN sub-tab becomes active: disable scan and start VPN refresh.
     vpn_tab.connect_toggled({
@@ -57,6 +67,7 @@ pub(super) fn setup_vpn(widgets: &PanelWidgets, state: Rc<RefCell<AppState>>) {
                 Rc::clone(&state),
                 wifi_tab.clone(),
                 vpn_tab.clone(),
+                window.clone(),
                 vpn_list_box.clone(),
                 status.clone(),
                 vpn_spinner.clone(),
@@ -92,12 +103,33 @@ pub(super) fn setup_vpn(widgets: &PanelWidgets, state: Rc<RefCell<AppState>>) {
             }
         }
     });
+
+    vpn_add_btn.connect_clicked({
+        let status = status.clone();
+        let panel_state = panel_state.clone();
+        move |_btn| {
+            if let Err(e) = launch_nm_connection_editor(None, Some(&panel_state), None) {
+                status.set_text(&format!("Failed to open editor: {e}"));
+            }
+        }
+    });
+
+    vpn_open_btn.connect_clicked({
+        let status = status.clone();
+        let panel_state = panel_state.clone();
+        move |_btn| {
+            if let Err(e) = launch_nm_connection_editor(None, Some(&panel_state), None) {
+                status.set_text(&format!("Failed to open settings: {e}"));
+            }
+        }
+    });
 }
 
 pub(super) fn start_vpn_refresh(
     state: Rc<RefCell<AppState>>,
     wifi_tab: gtk4::ToggleButton,
     vpn_tab: gtk4::ToggleButton,
+    window: gtk4::ApplicationWindow,
     list_box: gtk4::ListBox,
     status: gtk4::Label,
     spinner: gtk4::Spinner,
@@ -114,8 +146,46 @@ pub(super) fn start_vpn_refresh(
         let status = status.clone();
         let spinner = spinner.clone();
         let scrolled = scrolled.clone();
+        let window = window.clone();
         async move {
-            refresh_vpn_list(state, list_box, status, spinner, scrolled).await;
+            refresh_vpn_list(state, window, list_box, status, spinner, scrolled).await;
+        }
+    });
+
+    // Push updates immediately when NM active connection set changes.
+    glib::spawn_future_local({
+        let state = Rc::clone(&state);
+        let wifi_tab = wifi_tab.clone();
+        let vpn_tab = vpn_tab.clone();
+        let list_box = list_box.clone();
+        let status = status.clone();
+        let spinner = spinner.clone();
+        let scrolled = scrolled.clone();
+        let window = window.clone();
+        async move {
+            let wifi = state.borrow().wifi.clone();
+            let nm = match NetworkManagerProxy::new(wifi.connection()).await {
+                Ok(nm) => nm,
+                Err(e) => {
+                    log::warn!("VPN signal subscription failed: {e}");
+                    return;
+                }
+            };
+            let mut stream = nm.receive_active_connections_changed().await;
+            while let Some(_evt) = stream.next().await {
+                if !wifi_tab.is_active() || !vpn_tab.is_active() {
+                    break;
+                }
+                refresh_vpn_list(
+                    Rc::clone(&state),
+                    window.clone(),
+                    list_box.clone(),
+                    status.clone(),
+                    spinner.clone(),
+                    scrolled.clone(),
+                )
+                .await;
+            }
         }
     });
 
@@ -135,8 +205,9 @@ pub(super) fn start_vpn_refresh(
                     let status = status.clone();
                     let spinner = spinner.clone();
                     let scrolled = scrolled.clone();
+                    let window = window.clone();
                     async move {
-                        refresh_vpn_list(state, list_box, status, spinner, scrolled).await;
+                        refresh_vpn_list(state, window, list_box, status, spinner, scrolled).await;
                     }
                 });
                 glib::ControlFlow::Continue
@@ -158,6 +229,7 @@ pub(super) fn stop_vpn_refresh(state: &Rc<RefCell<AppState>>) {
 
 async fn refresh_vpn_list(
     state: Rc<RefCell<AppState>>,
+    window: gtk4::ApplicationWindow,
     list_box: gtk4::ListBox,
     status: gtk4::Label,
     spinner: gtk4::Spinner,
@@ -239,7 +311,10 @@ async fn refresh_vpn_list(
                     if let Some(active_path) = blocking_active_path {
                         if let Err(e) = vpn.disconnect(&active_path).await {
                             log::error!("VPN switch disconnect failed: {e}");
-                            status.set_text(&format!("VPN switch failed: {e}"));
+                            status.set_text(&format!(
+                                "VPN switch failed: {}",
+                                humanize_vpn_error(&e.to_string())
+                            ));
                             state.borrow_mut().vpn_pending.remove(&conn_path);
                             return;
                         }
@@ -249,7 +324,10 @@ async fn refresh_vpn_list(
                         Ok(_) => {}
                         Err(e) => {
                             log::error!("VPN connect failed: {e}");
-                            status.set_text(&format!("VPN connect failed: {e}"));
+                            status.set_text(&format!(
+                                "VPN connect failed: {}",
+                                humanize_vpn_error(&e.to_string())
+                            ));
                             state.borrow_mut().vpn_pending.remove(&conn_path);
                         }
                     }
@@ -279,11 +357,90 @@ async fn refresh_vpn_list(
                         Ok(_) => {}
                         Err(e) => {
                             log::error!("VPN disconnect failed: {e}");
-                            status.set_text(&format!("VPN disconnect failed: {e}"));
+                            status.set_text(&format!(
+                                "VPN disconnect failed: {}",
+                                humanize_vpn_error(&e.to_string())
+                            ));
                             state.borrow_mut().vpn_pending.remove(&conn_path);
                         }
                     }
                 }
+            });
+        })
+    };
+
+    let on_edit: Rc<dyn Fn(String, String)> = {
+        let status = status.clone();
+        let window = window.clone();
+        Rc::new(move |_conn_path: String, uuid: String| {
+            if let Err(e) = launch_nm_connection_editor(Some(uuid), None, Some(&window)) {
+                status.set_text(&format!("Failed to open editor: {e}"));
+            }
+        })
+    };
+
+    let on_delete: Rc<dyn Fn(String, String)> = {
+        let state = Rc::clone(&state);
+        let status = status.clone();
+        let list_box = list_box.clone();
+        let spinner = spinner.clone();
+        let scrolled = scrolled.clone();
+        let window = window.clone();
+        Rc::new(move |conn_path: String, name: String| {
+            let prompt_name = name.clone();
+            let state_for_confirm = Rc::clone(&state);
+            let status_for_confirm = status.clone();
+            let list_box_for_confirm = list_box.clone();
+            let spinner_for_confirm = spinner.clone();
+            let scrolled_for_confirm = scrolled.clone();
+            let window_for_confirm = window.clone();
+            confirm_delete_dialog(&window, &prompt_name, move || {
+                let state = Rc::clone(&state_for_confirm);
+                let status = status_for_confirm.clone();
+                let list_box = list_box_for_confirm.clone();
+                let spinner = spinner_for_confirm.clone();
+                let scrolled = scrolled_for_confirm.clone();
+                let window = window_for_confirm.clone();
+                let conn_path = conn_path.clone();
+                let name = name.clone();
+                glib::spawn_future_local(async move {
+                    let vpn = state.borrow().vpn.clone();
+                    let active_path = {
+                        let st = state.borrow();
+                        st.vpn_active_by_conn
+                            .get(&conn_path)
+                            .map(|a| a.active_path.clone())
+                    };
+                    if let Some(active_path) = active_path {
+                        if let Err(e) = vpn.disconnect(&active_path).await {
+                            status.set_text(&format!(
+                                "Failed to disconnect {}: {}",
+                                name,
+                                humanize_vpn_error(&e.to_string())
+                            ));
+                            return;
+                        }
+                    }
+                    match vpn.delete_profile(&conn_path).await {
+                        Ok(_) => {
+                            status.set_text(&format!("Deleted {}", name));
+                            refresh_vpn_list(
+                                Rc::clone(&state),
+                                window,
+                                list_box,
+                                status.clone(),
+                                spinner,
+                                scrolled,
+                            )
+                            .await;
+                        }
+                        Err(e) => status.set_text(&format!(
+                            "Delete failed for {}: {}",
+                            name,
+                            humanize_vpn_error(&e.to_string())
+                        )),
+                    }
+                });
             });
         })
     };
@@ -297,7 +454,15 @@ async fn refresh_vpn_list(
             .collect::<std::collections::HashMap<String, String>>()
     };
     let _row_paths =
-        vpn_list::populate_vpn_list(&list_box, &profiles, &active_by_conn, &pending, on_toggle);
+        vpn_list::populate_vpn_list(
+            &list_box,
+            &profiles,
+            &active_by_conn,
+            &pending,
+            on_toggle,
+            on_edit,
+            on_delete,
+        );
 
     spinner.set_spinning(false);
     spinner.set_visible(false);
@@ -348,4 +513,71 @@ fn update_vpn_header_status(
     } else {
         status.set_text("VPN disconnected");
     }
+}
+
+fn humanize_vpn_error(err: &str) -> String {
+    let lower = err.to_lowercase();
+    if lower.contains("no agents were available")
+        || lower.contains("no secret agent")
+        || lower.contains("secrets")
+    {
+        return "missing credentials/secrets".to_string();
+    }
+    if lower.contains("permission denied") || lower.contains("not authorized") {
+        return "permission denied".to_string();
+    }
+    if lower.contains("timeout") {
+        return "operation timed out".to_string();
+    }
+    if lower.contains("failed") && lower.contains("connect") {
+        return "connection failed".to_string();
+    }
+    err.to_string()
+}
+
+fn launch_nm_connection_editor(
+    uuid: Option<String>,
+    panel_state: Option<&crate::daemon::PanelState>,
+    window: Option<&gtk4::ApplicationWindow>,
+) -> Result<(), String> {
+    let mut cmd = Command::new("nm-connection-editor");
+    if let Some(uuid) = uuid {
+        if !uuid.is_empty() {
+            cmd.arg("--edit").arg(uuid);
+        }
+    }
+    cmd.spawn()
+        .map(|_| {
+            if let Some(state) = panel_state {
+                state.hide();
+            } else if let Some(win) = window {
+                win.set_visible(false);
+            }
+        })
+        .map_err(|e| format!("launch error: {e}"))
+}
+
+fn confirm_delete_dialog(
+    parent: &gtk4::ApplicationWindow,
+    vpn_name: &str,
+    on_confirm: impl Fn() + 'static,
+) {
+    let dialog = gtk4::MessageDialog::builder()
+        .transient_for(parent)
+        .modal(true)
+        .text("Delete VPN profile?")
+        .secondary_text(format!(
+            "Are you sure you want to delete \"{}\"?",
+            vpn_name
+        ))
+        .build();
+    dialog.add_button("Cancel", gtk4::ResponseType::Cancel);
+    dialog.add_button("Delete", gtk4::ResponseType::Accept);
+    dialog.connect_response(move |d, resp| {
+        if resp == gtk4::ResponseType::Accept {
+            on_confirm();
+        }
+        d.close();
+    });
+    dialog.present();
 }

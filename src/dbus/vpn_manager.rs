@@ -17,6 +17,8 @@ pub struct VpnProfile {
     pub name: String,
     /// NM connection type ("vpn" or "wireguard")
     pub conn_type: String,
+    /// NM connection UUID
+    pub uuid: String,
     /// Settings.Connection object path
     pub connection_path: String,
 }
@@ -81,10 +83,15 @@ impl VpnManager {
                 .get("id")
                 .and_then(|v| <String>::try_from(v.clone()).ok())
                 .unwrap_or_else(|| "VPN".to_string());
+            let uuid = conn_settings
+                .get("uuid")
+                .and_then(|v| <String>::try_from(v.clone()).ok())
+                .unwrap_or_default();
 
             profiles.push(VpnProfile {
                 name,
                 conn_type,
+                uuid,
                 connection_path: conn_path.to_string(),
             });
         }
@@ -145,5 +152,14 @@ impl VpnManager {
             .map_err(|e| zbus::Error::Failure(format!("Invalid active path: {e}")))?;
         nm.deactivate_connection(&act_path).await
     }
-}
 
+    pub async fn delete_profile(&self, connection_path: &str) -> zbus::Result<()> {
+        let conn_path = ObjectPath::try_from(connection_path)
+            .map_err(|e| zbus::Error::Failure(format!("Invalid connection path: {e}")))?;
+        let conn = SettingsConnectionProxy::builder(&self.conn)
+            .path(conn_path)?
+            .build()
+            .await?;
+        conn.delete().await
+    }
+}

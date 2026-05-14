@@ -14,6 +14,8 @@ pub fn build_vpn_row(
     active: Option<&VpnActive>,
     pending_label: Option<&str>,
     on_toggle: impl Fn(bool) + 'static,
+    on_edit: impl Fn() + 'static,
+    on_delete: impl Fn() + 'static,
 ) -> ListBoxRow {
     let row = ListBoxRow::new();
     row.add_css_class("vpn-row");
@@ -75,6 +77,39 @@ pub fn build_vpn_row(
     });
 
     hbox.append(&toggle);
+
+    use gtk4::{gio, MenuButton, PopoverMenu};
+
+    let menu = gio::Menu::new();
+    menu.append(Some("Edit Profile"), Some("row.edit"));
+    menu.append(Some("Delete Profile"), Some("row.delete"));
+
+    let popover = PopoverMenu::from_model(Some(&menu));
+    popover.add_css_class("vpn-popover");
+
+    let menu_btn = MenuButton::new();
+    menu_btn.set_icon_name("view-more-symbolic");
+    menu_btn.add_css_class("vpn-menu-btn");
+    menu_btn.add_css_class("flat");
+    menu_btn.set_has_frame(false);
+    menu_btn.set_direction(gtk4::ArrowType::None);
+    menu_btn.set_popover(Some(&popover));
+    menu_btn.set_halign(gtk4::Align::End);
+    menu_btn.set_valign(gtk4::Align::Center);
+    if let Some(cursor) = gtk4::gdk::Cursor::from_name("pointer", None) {
+        menu_btn.set_cursor(Some(&cursor));
+    }
+
+    let edit_action = gio::SimpleAction::new("edit", None);
+    edit_action.connect_activate(move |_, _| on_edit());
+    let delete_action = gio::SimpleAction::new("delete", None);
+    delete_action.connect_activate(move |_, _| on_delete());
+    let action_group = gio::SimpleActionGroup::new();
+    action_group.add_action(&edit_action);
+    action_group.add_action(&delete_action);
+    row.insert_action_group("row", Some(&action_group));
+
+    hbox.append(&menu_btn);
     row.set_child(Some(&hbox));
     row
 }

@@ -126,7 +126,7 @@ pub fn setup(
     bt_live_updates::setup_bt_live_updates(widgets, Rc::clone(&state));
     setup_scan_button_dispatch(widgets, Rc::clone(&state));
     setup_wifi_tab_sync(widgets, Rc::clone(&state));
-    vpn::setup_vpn(widgets, Rc::clone(&state));
+    vpn::setup_vpn(widgets, Rc::clone(&state), panel_state.clone());
     if widgets.wifi_tab.is_active() {
         scanning::start_wifi_auto_scan(
             Rc::clone(&state),
@@ -264,6 +264,7 @@ fn setup_wifi_tab_sync(widgets: &PanelWidgets, state: Rc<RefCell<AppState>>) {
     let vpn_list_box = widgets.vpn_list_box.clone();
     let vpn_spinner = widgets.vpn_spinner.clone();
     let vpn_scroll = widgets.vpn_scroll.clone();
+    let window = widgets.window.clone();
 
     wifi_tab.connect_toggled(move |btn| {
         if !btn.is_active() {
@@ -307,6 +308,7 @@ fn setup_wifi_tab_sync(widgets: &PanelWidgets, state: Rc<RefCell<AppState>>) {
                 Rc::clone(&state),
                 btn.clone(),
                 vpn_tab.clone(),
+                window.clone(),
                 vpn_list_box.clone(),
                 status.clone(),
                 vpn_spinner.clone(),
