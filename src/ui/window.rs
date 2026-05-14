@@ -45,7 +45,7 @@ pub struct PanelWidgets {
     pub cancel_button: gtk4::Button,
     pub error_label: gtk4::Label,
     // VPN page (inside Wi-Fi tab)
-    pub vpn_add_button: gtk4::Button,
+    pub vpn_import_button: gtk4::Button,
     pub vpn_open_button: gtk4::Button,
     pub vpn_list_box: ListBox,
     pub vpn_scroll: gtk4::ScrolledWindow,
@@ -171,11 +171,11 @@ pub fn build_window(app: &Application) -> PanelWidgets {
     vpn_actions.set_margin_end(20);
     vpn_actions.set_margin_bottom(6);
 
-    let vpn_add_button = gtk4::Button::with_label("Add Profile");
-    vpn_add_button.add_css_class("vpn-action-btn");
-    vpn_add_button.set_hexpand(true);
+    let vpn_import_button = gtk4::Button::with_label("Import Profile");
+    vpn_import_button.add_css_class("vpn-action-btn");
+    vpn_import_button.set_hexpand(true);
     if let Some(cursor) = gtk4::gdk::Cursor::from_name("pointer", None) {
-        vpn_add_button.set_cursor(Some(&cursor));
+        vpn_import_button.set_cursor(Some(&cursor));
     }
 
     let vpn_open_button = gtk4::Button::with_label("Open Settings");
@@ -185,7 +185,7 @@ pub fn build_window(app: &Application) -> PanelWidgets {
         vpn_open_button.set_cursor(Some(&cursor));
     }
 
-    vpn_actions.append(&vpn_add_button);
+    vpn_actions.append(&vpn_import_button);
     vpn_actions.append(&vpn_open_button);
     vpn_view.append(&vpn_actions);
 
@@ -320,7 +320,7 @@ pub fn build_window(app: &Application) -> PanelWidgets {
         connect_button: connect_btn,
         cancel_button: cancel_btn,
         error_label,
-        vpn_add_button,
+        vpn_import_button,
         vpn_open_button,
         vpn_list_box,
         vpn_scroll: vpn_scrolled,

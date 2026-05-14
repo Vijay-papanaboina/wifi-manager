@@ -1,6 +1,7 @@
 //! VPN UI — lists NetworkManager VPN/WireGuard profiles and allows toggle connect/disconnect.
 
 use std::cell::RefCell;
+use std::path::Path;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 use std::process::Command;
@@ -29,13 +30,15 @@ pub(super) fn setup_vpn(
     let scan_btn = widgets.scan_button.clone();
     let status = widgets.status_label.clone();
     let wifi_list_box = widgets.network_list_box.clone();
-    let vpn_add_btn = widgets.vpn_add_button.clone();
+    let vpn_import_btn = widgets.vpn_import_button.clone();
     let vpn_open_btn = widgets.vpn_open_button.clone();
 
     let vpn_list_box = widgets.vpn_list_box.clone();
     let vpn_spinner = widgets.vpn_spinner.clone();
     let vpn_scroll = widgets.vpn_scroll.clone();
     let window = widgets.window.clone();
+
+    let window_for_tab = window.clone();
 
     // When VPN sub-tab becomes active: disable scan and start VPN refresh.
     vpn_tab.connect_toggled({
@@ -67,7 +70,7 @@ pub(super) fn setup_vpn(
                 Rc::clone(&state),
                 wifi_tab.clone(),
                 vpn_tab.clone(),
-                window.clone(),
+                window_for_tab.clone(),
                 vpn_list_box.clone(),
                 status.clone(),
                 vpn_spinner.clone(),
@@ -104,13 +107,22 @@ pub(super) fn setup_vpn(
         }
     });
 
-    vpn_add_btn.connect_clicked({
+    vpn_import_btn.connect_clicked({
+        let state = Rc::clone(&state);
         let status = status.clone();
-        let panel_state = panel_state.clone();
+        let list_box = vpn_list_box.clone();
+        let spinner = vpn_spinner.clone();
+        let scrolled = vpn_scroll.clone();
+        let window = window.clone();
         move |_btn| {
-            if let Err(e) = launch_nm_connection_editor(None, Some(&panel_state), None) {
-                status.set_text(&format!("Failed to open editor: {e}"));
-            }
+            open_import_dialog(
+                Rc::clone(&state),
+                window.clone(),
+                list_box.clone(),
+                status.clone(),
+                spinner.clone(),
+                scrolled.clone(),
+            );
         }
     });
 
@@ -555,6 +567,99 @@ fn launch_nm_connection_editor(
             }
         })
         .map_err(|e| format!("launch error: {e}"))
+}
+
+fn open_import_dialog(
+    state: Rc<RefCell<AppState>>,
+    window: gtk4::ApplicationWindow,
+    list_box: gtk4::ListBox,
+    status: gtk4::Label,
+    spinner: gtk4::Spinner,
+    scrolled: gtk4::ScrolledWindow,
+) {
+    let chooser = gtk4::FileChooserNative::new(
+        Some("Import VPN Profile"),
+        None::<&gtk4::Window>,
+        gtk4::FileChooserAction::Open,
+        Some("Import"),
+        Some("Cancel"),
+    );
+    let filter = gtk4::FileFilter::new();
+    filter.add_pattern("*.ovpn");
+    filter.add_pattern("*.conf");
+    filter.set_name(Some("VPN Profiles (*.ovpn, *.conf)"));
+    chooser.set_filter(&filter);
+
+    chooser.connect_response(move |dialog, resp| {
+        if resp != gtk4::ResponseType::Accept {
+            dialog.destroy();
+            return;
+        }
+        let Some(file) = dialog.file() else {
+            dialog.destroy();
+            return;
+        };
+        let Some(path) = file.path() else {
+            dialog.destroy();
+            return;
+        };
+        dialog.destroy();
+
+        match import_vpn_profile(&path) {
+            Ok(msg) => {
+                status.set_text(&msg);
+                glib::spawn_future_local({
+                    let state = Rc::clone(&state);
+                    let window = window.clone();
+                    let list_box = list_box.clone();
+                    let status = status.clone();
+                    let spinner = spinner.clone();
+                    let scrolled = scrolled.clone();
+                    async move {
+                        refresh_vpn_list(state, window, list_box, status, spinner, scrolled).await;
+                    }
+                });
+            }
+            Err(e) => {
+                status.set_text(&format!("Import failed: {e}"));
+            }
+        }
+    });
+    chooser.show();
+}
+
+fn import_vpn_profile(path: &Path) -> Result<String, String> {
+    let ext = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_ascii_lowercase())
+        .unwrap_or_default();
+    let nm_type = match ext.as_str() {
+        "ovpn" => "openvpn",
+        "conf" => "wireguard",
+        _ => return Err("unsupported file type (use .ovpn or .conf)".to_string()),
+    };
+
+    let output = Command::new("nmcli")
+        .arg("connection")
+        .arg("import")
+        .arg("type")
+        .arg(nm_type)
+        .arg("file")
+        .arg(path.as_os_str())
+        .output()
+        .map_err(|e| format!("failed to run nmcli: {e}"))?;
+
+    if output.status.success() {
+        Ok("VPN profile imported".to_string())
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        if stderr.is_empty() {
+            Err("nmcli import failed".to_string())
+        } else {
+            Err(stderr)
+        }
+    }
 }
 
 fn confirm_delete_dialog(
