@@ -90,6 +90,7 @@ impl ControlsPanel {
             .halign(gtk4::Align::Center)
             .margin_bottom(8) // Add some breathing room below the button itself
             .tooltip_text("Show/Hide Controls")
+            .cursor(&gtk4::gdk::Cursor::from_name("pointer", None).unwrap())
             .build();
         toggle_button.add_css_class("flat");
         toggle_button.add_css_class("circular");
@@ -130,6 +131,7 @@ impl ControlsPanel {
         let brightness_btn = Button::builder()
             .icon_name("display-brightness-symbolic")
             .tooltip_text("Click to toggle minimum brightness")
+            .cursor(&gtk4::gdk::Cursor::from_name("pointer", None).unwrap())
             .build();
         brightness_btn.add_css_class("flat");
         brightness_btn.add_css_class("circular");
@@ -141,6 +143,7 @@ impl ControlsPanel {
             .value_pos(gtk4::PositionType::Right)
             .tooltip_text("Brightness")
             .adjustment(&gtk4::Adjustment::new(100.0, 1.0, 100.0, 1.0, 10.0, 0.0))
+            .cursor(&gtk4::gdk::Cursor::from_name("pointer", None).unwrap())
             .build();
 
         brightness_row.append(&brightness_btn);
@@ -156,6 +159,7 @@ impl ControlsPanel {
         let volume_btn = Button::builder()
             .icon_name("audio-volume-high-symbolic")
             .tooltip_text("Click to toggle mute")
+            .cursor(&gtk4::gdk::Cursor::from_name("pointer", None).unwrap())
             .build();
         volume_btn.add_css_class("flat");
         volume_btn.add_css_class("circular");
@@ -174,6 +178,7 @@ impl ControlsPanel {
             .value_pos(gtk4::PositionType::Right)
             .tooltip_text("Volume")
             .adjustment(&gtk4::Adjustment::new(0.0, 0.0, 100.0, 1.0, 10.0, 0.0))
+            .cursor(&gtk4::gdk::Cursor::from_name("pointer", None).unwrap())
             .build();
 
         volume_row.append(&volume_btn);
@@ -189,6 +194,7 @@ impl ControlsPanel {
         let night_mode_btn = Button::builder()
             .icon_name("night-light-symbolic")
             .tooltip_text("Click to toggle Night Mode")
+            .cursor(&gtk4::gdk::Cursor::from_name("pointer", None).unwrap())
             .build();
         night_mode_btn.add_css_class("flat");
         night_mode_btn.add_css_class("circular");
@@ -201,6 +207,7 @@ impl ControlsPanel {
             .value_pos(gtk4::PositionType::Right)
             .tooltip_text("Night Mode (Color Temperature)")
             .adjustment(&gtk4::Adjustment::new(0.0, 0.0, 3500.0, 100.0, 500.0, 0.0))
+            .cursor(&gtk4::gdk::Cursor::from_name("pointer", None).unwrap())
             .build();
         night_mode_scale.set_sensitive(false); // Disabled until toggled On
 
@@ -214,6 +221,7 @@ impl ControlsPanel {
             .halign(gtk4::Align::Center)
             .margin_top(12)
             .margin_bottom(12) // Gap from the bottom window edge
+            .css_classes(["power-row"])
             .build();
 
         fn connect_power_button(
@@ -244,6 +252,7 @@ impl ControlsPanel {
         let btn_poweroff = Button::builder()
             .icon_name("system-shutdown-symbolic")
             .tooltip_text("Power Off")
+            .cursor(&gtk4::gdk::Cursor::from_name("pointer", None).unwrap())
             .build();
         btn_poweroff.add_css_class("flat");
         btn_poweroff.add_css_class("circular");
@@ -252,6 +261,7 @@ impl ControlsPanel {
         let btn_reboot = Button::builder()
             .icon_name("system-reboot-symbolic")
             .tooltip_text("Reboot")
+            .cursor(&gtk4::gdk::Cursor::from_name("pointer", None).unwrap())
             .build();
         btn_reboot.add_css_class("flat");
         btn_reboot.add_css_class("circular");
@@ -260,6 +270,7 @@ impl ControlsPanel {
         let btn_suspend = Button::builder()
             .icon_name("weather-clear-night-symbolic")
             .tooltip_text("Suspend / Sleep")
+            .cursor(&gtk4::gdk::Cursor::from_name("pointer", None).unwrap())
             .build();
         btn_suspend.add_css_class("flat");
         btn_suspend.add_css_class("circular");
@@ -268,6 +279,7 @@ impl ControlsPanel {
         let btn_logout = Button::builder()
             .icon_name("system-log-out-symbolic")
             .tooltip_text("Log Out")
+            .cursor(&gtk4::gdk::Cursor::from_name("pointer", None).unwrap())
             .build();
         btn_logout.add_css_class("flat");
         btn_logout.add_css_class("circular");

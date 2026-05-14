@@ -26,6 +26,10 @@ pub fn build_device_row(
         row.add_css_class("pending");
     }
 
+    if let Some(cursor) = gtk4::gdk::Cursor::from_name("pointer", None) {
+        row.set_cursor(Some(&cursor));
+    }
+
     let hbox = GtkBox::new(Orientation::Horizontal, 12);
     hbox.add_css_class("device-row-content");
     hbox.set_margin_top(4);
@@ -106,6 +110,9 @@ pub fn build_device_row(
         menu_btn.set_popover(Some(&popover));
         menu_btn.set_halign(gtk4::Align::End);
         menu_btn.set_valign(gtk4::Align::Center);
+        if let Some(cursor) = gtk4::gdk::Cursor::from_name("pointer", None) {
+            menu_btn.set_cursor(Some(&cursor));
+        }
         menu_btn.connect_active_notify(move |btn| {
             on_menu_active(btn.is_active());
         });

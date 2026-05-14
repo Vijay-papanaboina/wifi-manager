@@ -63,9 +63,15 @@ pub fn build_password_section() -> (Revealer, Entry, Button, Button, Label) {
 
     let cancel_button = Button::with_label("Cancel");
     cancel_button.add_css_class("cancel-button");
+    if let Some(cursor) = gtk4::gdk::Cursor::from_name("pointer", None) {
+        cancel_button.set_cursor(Some(&cursor));
+    }
 
     let connect_button = Button::with_label("Connect");
     connect_button.add_css_class("connect-button");
+    if let Some(cursor) = gtk4::gdk::Cursor::from_name("pointer", None) {
+        connect_button.set_cursor(Some(&cursor));
+    }
 
     button_box.append(&cancel_button);
     button_box.append(&connect_button);

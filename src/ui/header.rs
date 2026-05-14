@@ -33,6 +33,9 @@ pub fn build_header() -> HeaderWidgets {
     toggle_switch.add_css_class("wifi-toggle");
     toggle_switch.set_valign(gtk4::Align::Center);
     toggle_switch.set_tooltip_text(Some("Enable/Disable"));
+    if let Some(cursor) = gtk4::gdk::Cursor::from_name("pointer", None) {
+        toggle_switch.set_cursor(Some(&cursor));
+    }
 
     // Title + Status
     let info_box = GtkBox::new(Orientation::Vertical, 2);
@@ -56,6 +59,9 @@ pub fn build_header() -> HeaderWidgets {
     scan_button.add_css_class("scan-button");
     scan_button.set_tooltip_text(Some("Scan"));
     scan_button.set_valign(gtk4::Align::Center);
+    if let Some(cursor) = gtk4::gdk::Cursor::from_name("pointer", None) {
+        scan_button.set_cursor(Some(&cursor));
+    }
 
     top_row.append(&toggle_switch);
     top_row.append(&info_box);
@@ -70,10 +76,16 @@ pub fn build_header() -> HeaderWidgets {
     wifi_tab.add_css_class("tab-active");
     wifi_tab.set_active(true);
     wifi_tab.set_hexpand(true);
+    if let Some(cursor) = gtk4::gdk::Cursor::from_name("pointer", None) {
+        wifi_tab.set_cursor(Some(&cursor));
+    }
 
     let bt_tab = ToggleButton::with_label("󰂯  Bluetooth");
     bt_tab.add_css_class("tab-button");
     bt_tab.set_hexpand(true);
+    if let Some(cursor) = gtk4::gdk::Cursor::from_name("pointer", None) {
+        bt_tab.set_cursor(Some(&cursor));
+    }
 
     // Mutual exclusion: clicking one deactivates the other
     wifi_tab.set_group(Some(&bt_tab));
