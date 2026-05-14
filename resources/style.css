@@ -281,6 +281,33 @@ switch slider {
   color: #78aeed;
 }
 
+/* ── Wi-Fi Sub Tabs (Networks / VPN) ──────────────────────────────────────── */
+
+.subtab-bar {
+  padding: 0 20px;
+}
+
+.subtab-button {
+  background: transparent;
+  color: rgba(255, 255, 255, 0.45);
+  border: none;
+  border-radius: 10px;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  transition: all 150ms ease;
+}
+
+.subtab-button:hover {
+  color: rgba(255, 255, 255, 0.7);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.subtab-button:checked {
+  background: rgba(53, 132, 228, 0.15);
+  color: #78aeed;
+}
+
 /* ── Bluetooth Device List ─────────────────────────────────────────────────── */
 
 .device-list {
@@ -317,6 +344,72 @@ switch slider {
 
 .device-row:hover {
   background: rgba(255, 255, 255, 0.05);
+}
+
+.empty-label {
+  color: rgba(255, 255, 255, 0.35);
+  font-size: 13px;
+  padding: 40px 20px;
+}
+
+/* ── VPN List ─────────────────────────────────────────────────────────────── */
+
+.vpn-list {
+  background: transparent;
+  padding: 6px 0;
+}
+
+.vpn-scroll scrollbar slider {
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 99px;
+  min-width: 4px;
+}
+
+/* ── VPN Rows ─────────────────────────────────────────────────────────────── */
+
+.vpn-row {
+  padding: 12px 20px;
+  margin: 2px 8px;
+  border-radius: 12px;
+  transition: all 150ms ease;
+}
+
+.vpn-row:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.vpn-row.connected {
+  background: rgba(53, 132, 228, 0.12);
+}
+
+.vpn-row.pending {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.vpn-name {
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.vpn-row.connected .vpn-name {
+  color: #ffffff;
+  font-weight: 700;
+}
+
+.vpn-subtitle {
+  color: rgba(255, 255, 255, 0.4);
+  font-size: 11px;
+  font-weight: 400;
+}
+
+.vpn-pending {
+  color: rgba(255, 255, 255, 0.75);
+  font-weight: 500;
+}
+
+.vpn-row.connected .vpn-subtitle {
+  color: rgba(255, 255, 255, 0.7);
 }
 
 .device-row.connected {
