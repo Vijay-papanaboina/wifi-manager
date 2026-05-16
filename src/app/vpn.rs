@@ -1,6 +1,7 @@
 //! VPN UI — lists NetworkManager VPN/WireGuard profiles and allows toggle connect/disconnect.
 
 use std::cell::RefCell;
+use std::collections::HashSet;
 use std::path::Path;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
@@ -608,17 +609,14 @@ fn open_import_dialog(
         match import_vpn_profile(&path) {
             Ok(msg) => {
                 status.set_text(&msg);
-                glib::spawn_future_local({
-                    let state = Rc::clone(&state);
-                    let window = window.clone();
-                    let list_box = list_box.clone();
-                    let status = status.clone();
-                    let spinner = spinner.clone();
-                    let scrolled = scrolled.clone();
-                    async move {
-                        refresh_vpn_list(state, window, list_box, status, spinner, scrolled).await;
-                    }
-                });
+                schedule_post_import_refresh(
+                    Rc::clone(&state),
+                    window.clone(),
+                    list_box.clone(),
+                    status.clone(),
+                    spinner.clone(),
+                    scrolled.clone(),
+                );
             }
             Err(e) => {
                 status.set_text(&format!("Import failed: {e}"));
@@ -628,7 +626,44 @@ fn open_import_dialog(
     chooser.show();
 }
 
+fn schedule_post_import_refresh(
+    state: Rc<RefCell<AppState>>,
+    window: gtk4::ApplicationWindow,
+    list_box: gtk4::ListBox,
+    status: gtk4::Label,
+    spinner: gtk4::Spinner,
+    scrolled: gtk4::ScrolledWindow,
+) {
+    // NM may finish activation shortly after nmcli import returns.
+    // Refresh in brief bursts so connected state is reflected without tab reopen.
+    let delays_ms = [0_u64, 800, 1800, 3200];
+    for delay in delays_ms {
+        let state = Rc::clone(&state);
+        let window = window.clone();
+        let list_box = list_box.clone();
+        let status = status.clone();
+        let spinner = spinner.clone();
+        let scrolled = scrolled.clone();
+        glib::timeout_add_local(std::time::Duration::from_millis(delay), move || {
+            glib::spawn_future_local({
+                let state = Rc::clone(&state);
+                let window = window.clone();
+                let list_box = list_box.clone();
+                let status = status.clone();
+                let spinner = spinner.clone();
+                let scrolled = scrolled.clone();
+                async move {
+                    refresh_vpn_list(state, window, list_box, status, spinner, scrolled).await;
+                }
+            });
+            glib::ControlFlow::Break
+        });
+    }
+}
+
 fn import_vpn_profile(path: &Path) -> Result<String, String> {
+    let before = list_vpn_profile_uuids()?;
+
     let ext = path
         .extension()
         .and_then(|e| e.to_str())
@@ -651,7 +686,25 @@ fn import_vpn_profile(path: &Path) -> Result<String, String> {
         .map_err(|e| format!("failed to run nmcli: {e}"))?;
 
     if output.status.success() {
-        Ok("VPN profile imported".to_string())
+        let after = list_vpn_profile_uuids()?;
+        let imported: Vec<String> = after.difference(&before).cloned().collect();
+        for uuid in &imported {
+            let _ = run_nmcli(&[
+                "connection",
+                "modify",
+                "uuid",
+                uuid,
+                "connection.autoconnect",
+                "no",
+            ]);
+            // If NM auto-activated the imported profile, bring it down now.
+            let _ = run_nmcli(&["connection", "down", "uuid", uuid]);
+        }
+        if imported.is_empty() {
+            Ok("VPN profile imported".to_string())
+        } else {
+            Ok("VPN profile imported (autoconnect disabled)".to_string())
+        }
     } else {
         let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
         if stderr.is_empty() {
@@ -660,6 +713,33 @@ fn import_vpn_profile(path: &Path) -> Result<String, String> {
             Err(stderr)
         }
     }
+}
+
+fn list_vpn_profile_uuids() -> Result<HashSet<String>, String> {
+    let output = run_nmcli(&["-t", "-f", "UUID,TYPE", "connection", "show"])?;
+    if !output.status.success() {
+        return Err("failed to list NetworkManager connections".to_string());
+    }
+    let mut out = HashSet::new();
+    for line in String::from_utf8_lossy(&output.stdout).lines() {
+        let mut parts = line.splitn(2, ':');
+        let uuid = parts.next().unwrap_or("").trim();
+        let kind = parts.next().unwrap_or("").trim();
+        if uuid.is_empty() {
+            continue;
+        }
+        if kind == "vpn" || kind == "wireguard" {
+            out.insert(uuid.to_string());
+        }
+    }
+    Ok(out)
+}
+
+fn run_nmcli(args: &[&str]) -> Result<std::process::Output, String> {
+    Command::new("nmcli")
+        .args(args)
+        .output()
+        .map_err(|e| format!("failed to run nmcli: {e}"))
 }
 
 fn confirm_delete_dialog(
