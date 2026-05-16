@@ -66,7 +66,7 @@ impl Default for Config {
                 "󰤥".to_string(),  // good
                 "󰤨".to_string(),  // strong
             ],
-            lock_icon: "".to_string(),
+            lock_icon: "󰌾".to_string(),
             saved_icon: "".to_string(),
             show_on_start: false,
         }
