@@ -15,8 +15,6 @@ use super::proxies::{
 pub struct VpnProfile {
     /// Human readable name (connection.id)
     pub name: String,
-    /// NM connection type ("vpn" or "wireguard")
-    pub conn_type: String,
     /// NM connection UUID
     pub uuid: String,
     /// Settings.Connection object path
@@ -31,8 +29,6 @@ pub struct VpnActive {
     pub state: u32,
     /// Settings.Connection path for this active connection
     pub connection_path: String,
-    /// Active connection type, if available
-    pub conn_type: String,
 }
 
 #[derive(Clone)]
@@ -90,7 +86,6 @@ impl VpnManager {
 
             profiles.push(VpnProfile {
                 name,
-                conn_type,
                 uuid,
                 connection_path: conn_path.to_string(),
             });
@@ -126,7 +121,6 @@ impl VpnManager {
                     active_path: active_path.to_string(),
                     state,
                     connection_path,
-                    conn_type,
                 },
             );
         }

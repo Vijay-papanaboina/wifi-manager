@@ -56,6 +56,8 @@ pub(super) fn setup_vpn(
         let vpn_list_box = vpn_list_box.clone();
         let vpn_spinner = vpn_spinner.clone();
         let vpn_scroll = vpn_scroll.clone();
+        let vpn_import_btn = vpn_import_btn.clone();
+        let vpn_open_btn = vpn_open_btn.clone();
         move |btn| {
             if !btn.is_active() {
                 return;
@@ -78,6 +80,8 @@ pub(super) fn setup_vpn(
                 status.clone(),
                 vpn_spinner.clone(),
                 vpn_scroll.clone(),
+                vpn_import_btn.clone(),
+                vpn_open_btn.clone(),
             );
         }
     });
@@ -117,7 +121,10 @@ pub(super) fn setup_vpn(
         let spinner = vpn_spinner.clone();
         let scrolled = vpn_scroll.clone();
         let window = window.clone();
+        let import_btn = vpn_import_btn.clone();
+        let open_btn = vpn_open_btn.clone();
         move |_btn| {
+            begin_vpn_work(&state, &import_btn, &open_btn);
             open_import_dialog(
                 Rc::clone(&state),
                 window.clone(),
@@ -125,6 +132,14 @@ pub(super) fn setup_vpn(
                 status.clone(),
                 spinner.clone(),
                 scrolled.clone(),
+                import_btn.clone(),
+                open_btn.clone(),
+                {
+                    let state = Rc::clone(&state);
+                    let import_btn = import_btn.clone();
+                    let open_btn = open_btn.clone();
+                    move || end_vpn_work(&state, &import_btn, &open_btn)
+                },
             );
         }
     });
@@ -149,6 +164,8 @@ pub(super) fn start_vpn_refresh(
     status: gtk4::Label,
     spinner: gtk4::Spinner,
     scrolled: gtk4::ScrolledWindow,
+    import_btn: gtk4::Button,
+    open_btn: gtk4::Button,
 ) {
     if state.borrow().vpn_refresh_source.is_some() {
         return;
@@ -162,8 +179,10 @@ pub(super) fn start_vpn_refresh(
         let spinner = spinner.clone();
         let scrolled = scrolled.clone();
         let window = window.clone();
+        let import_btn = import_btn.clone();
+        let open_btn = open_btn.clone();
         async move {
-            refresh_vpn_list(state, window, list_box, status, spinner, scrolled).await;
+            refresh_vpn_list(state, window, list_box, status, spinner, scrolled, import_btn, open_btn).await;
         }
     });
 
@@ -177,6 +196,8 @@ pub(super) fn start_vpn_refresh(
         let spinner = spinner.clone();
         let scrolled = scrolled.clone();
         let window = window.clone();
+        let import_btn = import_btn.clone();
+        let open_btn = open_btn.clone();
         async move {
             let wifi = state.borrow().wifi.clone();
             let nm = match NetworkManagerProxy::new(wifi.connection()).await {
@@ -198,6 +219,8 @@ pub(super) fn start_vpn_refresh(
                     status.clone(),
                     spinner.clone(),
                     scrolled.clone(),
+                    import_btn.clone(),
+                    open_btn.clone(),
                 )
                 .await;
             }
@@ -222,8 +245,10 @@ pub(super) fn start_vpn_refresh(
                     let spinner = spinner.clone();
                     let scrolled = scrolled.clone();
                     let window = window.clone();
+                    let import_btn = import_btn.clone();
+                    let open_btn = open_btn.clone();
                     async move {
-                        refresh_vpn_list(state, window, list_box, status, spinner, scrolled).await;
+                        refresh_vpn_list(state, window, list_box, status, spinner, scrolled, import_btn, open_btn).await;
                     }
                 });
                 glib::ControlFlow::Continue
@@ -250,7 +275,10 @@ pub(super) async fn refresh_vpn_list(
     status: gtk4::Label,
     spinner: gtk4::Spinner,
     scrolled: gtk4::ScrolledWindow,
+    import_btn: gtk4::Button,
+    open_btn: gtk4::Button,
 ) {
+    begin_vpn_work(&state, &import_btn, &open_btn);
     let vpn = state.borrow().vpn.clone();
 
     let profiles = match vpn.list_profiles().await {
@@ -261,6 +289,7 @@ pub(super) async fn refresh_vpn_list(
             spinner.set_spinning(false);
             spinner.set_visible(false);
             scrolled.set_visible(true);
+            end_vpn_work(&state, &import_btn, &open_btn);
             return;
         }
     };
@@ -291,16 +320,22 @@ pub(super) async fn refresh_vpn_list(
         });
     }
 
+    enforce_single_active_vpn(&state, &status, &active_by_conn).await;
     update_vpn_header_status(&status, &profiles, &active_by_conn);
 
     let on_toggle: Rc<dyn Fn(String, bool)> = {
         let state = Rc::clone(&state);
         let status = status.clone();
+        let import_btn = import_btn.clone();
+        let open_btn = open_btn.clone();
         Rc::new(move |conn_path: String, enabled: bool| {
             let state = Rc::clone(&state);
             let status = status.clone();
+            let import_btn = import_btn.clone();
+            let open_btn = open_btn.clone();
             glib::spawn_future_local(async move {
                 let vpn = state.borrow().vpn.clone();
+                begin_vpn_work(&state, &import_btn, &open_btn);
 
                 if enabled {
                     let blocking_active_path = {
@@ -328,6 +363,7 @@ pub(super) async fn refresh_vpn_list(
                                 humanize_vpn_error(&e.to_string())
                             ));
                             state.borrow_mut().vpn_pending.remove(&conn_path);
+                            end_vpn_work(&state, &import_btn, &open_btn);
                             return;
                         }
                     }
@@ -352,6 +388,7 @@ pub(super) async fn refresh_vpn_list(
                     };
 
                     let Some(active_path) = active_path else {
+                        end_vpn_work(&state, &import_btn, &open_btn);
                         return;
                     };
 
@@ -377,6 +414,7 @@ pub(super) async fn refresh_vpn_list(
                         }
                     }
                 }
+                end_vpn_work(&state, &import_btn, &open_btn);
             });
         })
     };
@@ -398,6 +436,8 @@ pub(super) async fn refresh_vpn_list(
         let spinner = spinner.clone();
         let scrolled = scrolled.clone();
         let window = window.clone();
+        let import_btn = import_btn.clone();
+        let open_btn = open_btn.clone();
         Rc::new(move |conn_path: String, name: String| {
             let prompt_name = name.clone();
             let state_for_confirm = Rc::clone(&state);
@@ -406,6 +446,8 @@ pub(super) async fn refresh_vpn_list(
             let spinner_for_confirm = spinner.clone();
             let scrolled_for_confirm = scrolled.clone();
             let window_for_confirm = window.clone();
+            let import_btn_for_confirm = import_btn.clone();
+            let open_btn_for_confirm = open_btn.clone();
             confirm_delete_dialog(&window, &prompt_name, move || {
                 let state = Rc::clone(&state_for_confirm);
                 let status = status_for_confirm.clone();
@@ -413,10 +455,13 @@ pub(super) async fn refresh_vpn_list(
                 let spinner = spinner_for_confirm.clone();
                 let scrolled = scrolled_for_confirm.clone();
                 let window = window_for_confirm.clone();
+                let import_btn = import_btn_for_confirm.clone();
+                let open_btn = open_btn_for_confirm.clone();
                 let conn_path = conn_path.clone();
                 let name = name.clone();
                 glib::spawn_future_local(async move {
                     let vpn = state.borrow().vpn.clone();
+                    begin_vpn_work(&state, &import_btn, &open_btn);
                     let active_path = {
                         let st = state.borrow();
                         st.vpn_active_by_conn
@@ -430,6 +475,7 @@ pub(super) async fn refresh_vpn_list(
                                 name,
                                 humanize_vpn_error(&e.to_string())
                             ));
+                            end_vpn_work(&state, &import_btn, &open_btn);
                             return;
                         }
                     }
@@ -443,6 +489,8 @@ pub(super) async fn refresh_vpn_list(
                                 status.clone(),
                                 spinner,
                                 scrolled,
+                                import_btn.clone(),
+                                open_btn.clone(),
                             )
                             .await;
                         }
@@ -452,6 +500,7 @@ pub(super) async fn refresh_vpn_list(
                             humanize_vpn_error(&e.to_string())
                         )),
                     }
+                    end_vpn_work(&state, &import_btn, &open_btn);
                 });
             });
         })
@@ -478,4 +527,74 @@ pub(super) async fn refresh_vpn_list(
     spinner.set_spinning(false);
     spinner.set_visible(false);
     scrolled.set_visible(true);
+    end_vpn_work(&state, &import_btn, &open_btn);
+}
+
+fn begin_vpn_work(
+    state: &Rc<RefCell<AppState>>,
+    import_btn: &gtk4::Button,
+    open_btn: &gtk4::Button,
+) {
+    let mut st = state.borrow_mut();
+    st.vpn_busy_count = st.vpn_busy_count.saturating_add(1);
+    drop(st);
+    update_vpn_action_buttons(state, import_btn, open_btn);
+}
+
+fn end_vpn_work(
+    state: &Rc<RefCell<AppState>>,
+    import_btn: &gtk4::Button,
+    open_btn: &gtk4::Button,
+) {
+    let mut st = state.borrow_mut();
+    st.vpn_busy_count = st.vpn_busy_count.saturating_sub(1);
+    drop(st);
+    update_vpn_action_buttons(state, import_btn, open_btn);
+}
+
+pub(super) fn update_vpn_action_buttons(
+    state: &Rc<RefCell<AppState>>,
+    import_btn: &gtk4::Button,
+    open_btn: &gtk4::Button,
+) {
+    let busy = state.borrow().vpn_busy_count > 0;
+    import_btn.set_sensitive(!busy);
+    open_btn.set_sensitive(!busy);
+}
+
+async fn enforce_single_active_vpn(
+    state: &Rc<RefCell<AppState>>,
+    status: &gtk4::Label,
+    active_by_conn: &std::collections::HashMap<String, crate::dbus::vpn_manager::VpnActive>,
+) {
+    let mut connected: Vec<(String, String)> = active_by_conn
+        .iter()
+        .filter(|(_, v)| v.state == 2)
+        .map(|(conn_path, active)| (conn_path.clone(), active.active_path.clone()))
+        .collect();
+    if connected.len() <= 1 || state.borrow().vpn_normalizing {
+        return;
+    }
+
+    connected.sort_by(|a, b| a.0.cmp(&b.0));
+    let keep_conn = connected[0].0.clone();
+    let disconnect_paths: Vec<String> = connected
+        .into_iter()
+        .filter(|(conn_path, _)| conn_path != &keep_conn)
+        .map(|(_, active_path)| active_path)
+        .collect();
+
+    state.borrow_mut().vpn_normalizing = true;
+    let vpn = state.borrow().vpn.clone();
+    for active_path in disconnect_paths {
+        if let Err(e) = vpn.disconnect(&active_path).await {
+            log::warn!("VPN normalization disconnect failed: {e}");
+            status.set_text(&format!(
+                "VPN normalize failed: {}",
+                humanize_vpn_error(&e.to_string())
+            ));
+        }
+    }
+    status.set_text("Multiple VPNs detected; normalized to one active profile");
+    state.borrow_mut().vpn_normalizing = false;
 }

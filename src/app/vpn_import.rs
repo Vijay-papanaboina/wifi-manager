@@ -9,6 +9,7 @@ use std::path::Path;
 use std::process::Command;
 use std::rc::Rc;
 
+use gtk4::gio;
 use gtk4::glib;
 use gtk4::prelude::*;
 
@@ -22,53 +23,63 @@ pub(super) fn open_import_dialog(
     status: gtk4::Label,
     spinner: gtk4::Spinner,
     scrolled: gtk4::ScrolledWindow,
+    import_btn: gtk4::Button,
+    open_btn: gtk4::Button,
+    on_done: impl Fn() + 'static,
 ) {
-    let chooser = gtk4::FileChooserNative::new(
-        Some("Import VPN Profile"),
-        None::<&gtk4::Window>,
-        gtk4::FileChooserAction::Open,
-        Some("Import"),
-        Some("Cancel"),
-    );
+    let chooser = gtk4::FileDialog::builder()
+        .title("Import VPN Profile")
+        .accept_label("Import")
+        .build();
+
     let filter = gtk4::FileFilter::new();
     filter.add_pattern("*.ovpn");
     filter.add_pattern("*.conf");
     filter.set_name(Some("VPN Profiles (*.ovpn, *.conf)"));
-    chooser.set_filter(&filter);
+    let filter_store = gio::ListStore::new::<gtk4::FileFilter>();
+    filter_store.append(&filter);
+    chooser.set_filters(Some(&filter_store));
+    chooser.set_default_filter(Some(&filter));
 
-    chooser.connect_response(move |dialog: &gtk4::FileChooserNative, resp| {
-        if resp != gtk4::ResponseType::Accept {
-            dialog.destroy();
-            return;
-        }
-        let Some(file) = dialog.file() else {
-            dialog.destroy();
-            return;
-        };
-        let Some(path) = file.path() else {
-            dialog.destroy();
-            return;
-        };
-        dialog.destroy();
+    let on_done = Rc::new(on_done);
+    glib::spawn_future_local(async move {
+        match chooser.open_future(None::<&gtk4::Window>).await {
+            Ok(file) => {
+                let Some(path) = file.path() else {
+                    status.set_text("Import failed: selected file path is unavailable");
+                    on_done();
+                    return;
+                };
 
-        match import_vpn_profile(&path) {
-            Ok(msg) => {
-                status.set_text(&msg);
-                schedule_post_import_refresh(
-                    Rc::clone(&state),
-                    window.clone(),
-                    list_box.clone(),
-                    status.clone(),
-                    spinner.clone(),
-                    scrolled.clone(),
-                );
+                match import_vpn_profile(&path) {
+                    Ok(msg) => {
+                        status.set_text(&msg);
+                        schedule_post_import_refresh(
+                            Rc::clone(&state),
+                            window.clone(),
+                            list_box.clone(),
+                            status.clone(),
+                            spinner.clone(),
+                            scrolled.clone(),
+                            import_btn.clone(),
+                            open_btn.clone(),
+                        );
+                    }
+                    Err(e) => {
+                        status.set_text(&format!("Import failed: {e}"));
+                    }
+                }
             }
             Err(e) => {
-                status.set_text(&format!("Import failed: {e}"));
+                // User cancel should be quiet.
+                if !e.matches(gtk4::DialogError::Dismissed) {
+                    status.set_text(&format!("Import failed: {e}"));
+                }
             }
         }
+
+        on_done();
     });
-    chooser.show();
 }
 
 /// Schedule a burst of VPN list refreshes after an import completes.
@@ -82,6 +93,8 @@ pub(super) fn schedule_post_import_refresh(
     status: gtk4::Label,
     spinner: gtk4::Spinner,
     scrolled: gtk4::ScrolledWindow,
+    import_btn: gtk4::Button,
+    open_btn: gtk4::Button,
 ) {
     let delays_ms = [0_u64, 800, 1800, 3200];
     for delay in delays_ms {
@@ -91,6 +104,8 @@ pub(super) fn schedule_post_import_refresh(
         let status = status.clone();
         let spinner = spinner.clone();
         let scrolled = scrolled.clone();
+        let import_btn = import_btn.clone();
+        let open_btn = open_btn.clone();
         glib::timeout_add_local(std::time::Duration::from_millis(delay), move || {
             glib::spawn_future_local({
                 let state = Rc::clone(&state);
@@ -99,8 +114,19 @@ pub(super) fn schedule_post_import_refresh(
                 let status = status.clone();
                 let spinner = spinner.clone();
                 let scrolled = scrolled.clone();
+                let import_btn = import_btn.clone();
+                let open_btn = open_btn.clone();
                 async move {
-                    super::vpn::refresh_vpn_list(state, window, list_box, status, spinner, scrolled)
+                    super::vpn::refresh_vpn_list(
+                        state,
+                        window,
+                        list_box,
+                        status,
+                        spinner,
+                        scrolled,
+                        import_btn,
+                        open_btn,
+                    )
                         .await;
                 }
             });
@@ -157,6 +183,11 @@ fn import_vpn_profile(path: &Path) -> Result<String, String> {
         let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
         if stderr.is_empty() {
             Err("nmcli import failed".to_string())
+        } else if stderr.contains("already exists")
+            || stderr.contains("exists")
+            || stderr.contains("duplicate")
+        {
+            Err("profile already exists (same name/UUID). Rename it or delete the old profile and retry".to_string())
         } else {
             Err(stderr)
         }

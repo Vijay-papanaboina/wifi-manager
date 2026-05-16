@@ -84,6 +84,10 @@ struct AppState {
     vpn_active_by_conn: HashMap<String, VpnActive>,
     /// Periodic refresh timer for VPN list (when VPN sub-tab is active).
     vpn_refresh_source: Option<glib::SourceId>,
+    /// Number of in-flight VPN operations; disables action buttons while > 0.
+    vpn_busy_count: usize,
+    /// Prevent re-entrant single-active normalization loops.
+    vpn_normalizing: bool,
 }
 
 
@@ -119,6 +123,8 @@ pub fn setup(
         vpn_pending: HashMap::new(),
         vpn_active_by_conn: HashMap::new(),
         vpn_refresh_source: None,
+        vpn_busy_count: 0,
+        vpn_normalizing: false,
     }));
 
     connection::setup_wifi_toggle(widgets, Rc::clone(&state));
@@ -268,6 +274,8 @@ fn setup_wifi_tab_sync(widgets: &PanelWidgets, state: Rc<RefCell<AppState>>) {
     let vpn_list_box = widgets.vpn_list_box.clone();
     let vpn_spinner = widgets.vpn_spinner.clone();
     let vpn_scroll = widgets.vpn_scroll.clone();
+    let vpn_import_btn = widgets.vpn_import_button.clone();
+    let vpn_open_btn = widgets.vpn_open_button.clone();
     let window = widgets.window.clone();
 
     wifi_tab.connect_toggled(move |btn| {
@@ -317,6 +325,8 @@ fn setup_wifi_tab_sync(widgets: &PanelWidgets, state: Rc<RefCell<AppState>>) {
                 status.clone(),
                 vpn_spinner.clone(),
                 vpn_scroll.clone(),
+                vpn_import_btn.clone(),
+                vpn_open_btn.clone(),
             );
         } else {
             scanning::start_wifi_auto_scan(

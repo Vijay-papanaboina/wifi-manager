@@ -109,22 +109,19 @@ pub(super) fn confirm_delete_dialog(
     vpn_name: &str,
     on_confirm: impl Fn() + 'static,
 ) {
-    let dialog = gtk4::MessageDialog::builder()
-        .transient_for(parent)
+    let dialog = gtk4::AlertDialog::builder()
         .modal(true)
-        .text("Delete VPN profile?")
-        .secondary_text(format!(
-            "Are you sure you want to delete \"{}\"?",
-            vpn_name
-        ))
+        .message("Delete VPN profile?")
+        .detail(format!("Are you sure you want to delete \"{}\"?", vpn_name))
+        .buttons(["Cancel", "Delete"])
+        .cancel_button(0)
+        .default_button(1)
         .build();
-    dialog.add_button("Cancel", gtk4::ResponseType::Cancel);
-    dialog.add_button("Delete", gtk4::ResponseType::Accept);
-    dialog.connect_response(move |d: &gtk4::MessageDialog, resp| {
-        if resp == gtk4::ResponseType::Accept {
+
+    let parent = parent.clone();
+    gtk4::glib::spawn_future_local(async move {
+        if dialog.choose_future(Some(&parent)).await == Ok(1) {
             on_confirm();
         }
-        d.close();
     });
-    dialog.present();
 }
