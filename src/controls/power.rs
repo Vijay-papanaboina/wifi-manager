@@ -29,18 +29,42 @@ fn execute_logout_command(program: &str, args: &[&str]) -> Result<(), String> {
 }
 
 pub fn logout() -> Result<(), String> {
+    // 1. Try UWSM if running (modern Hyprland recommended session manager)
+    if std::env::var("UWSM_SESSION").is_ok() {
+        log::info!("UWSM session detected, attempting graceful stop");
+        if let Ok(_) = execute_logout_command("uwsm", &["stop"]) {
+            return Ok(());
+        }
+    }
+
     let desktop = match std::env::var("XDG_CURRENT_DESKTOP") {
         Ok(val) => val.to_lowercase(),
-        Err(_) => return Err("XDG_CURRENT_DESKTOP environment variable is not set".to_string()),
+        Err(_) => "unknown".to_string(),
     };
-    
+
+    // 2. Try compositor-specific dispatchers
     if desktop.contains("hyprland") {
-        execute_logout_command("hyprctl", &["dispatch", "exit"])
+        log::info!("Hyprland detected, trying dispatchers");
+        // Try new Lua syntax (v0.55+) first
+        if let Ok(_) = execute_logout_command("hyprctl", &["dispatch", "hl.dsp.exit()"]) {
+            return Ok(());
+        }
+        // Fallback to legacy syntax (v0.54 and below)
+        if let Ok(_) = execute_logout_command("hyprctl", &["dispatch", "exit"]) {
+            return Ok(());
+        }
     } else if desktop.contains("sway") {
-        execute_logout_command("swaymsg", &["exit"])
+        if let Ok(_) = execute_logout_command("swaymsg", &["exit"]) {
+            return Ok(());
+        }
     } else if desktop.contains("river") {
-        execute_logout_command("riverctl", &["exit"])
-    } else {
-        Err(format!("Unsupported or unknown Wayland compositor for logout: {}", desktop))
+        if let Ok(_) = execute_logout_command("riverctl", &["exit"]) {
+            return Ok(());
+        }
     }
+
+    // 3. Final nuclear fallback: terminate the session via loginctl
+    // This works on almost any systemd-based distro regardless of the compositor.
+    log::warn!("Compositor exit failed or unknown; falling back to loginctl");
+    execute_logout_command("loginctl", &["terminate-user", ""])
 }

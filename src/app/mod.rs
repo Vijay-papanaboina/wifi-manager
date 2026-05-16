@@ -7,16 +7,22 @@
 //! - `shortcuts` — Escape key, reload polling
 
 mod bluetooth;
+mod bt_helpers;
 mod bt_live_updates;
+mod bt_scanning;
 mod connection;
 mod controls;
 mod live_updates;
 mod scanning;
 mod shortcuts;
+mod vpn;
+mod vpn_import;
+mod vpn_utils;
 
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
+use std::time::Instant;
 
 use gtk4::glib;
 use gtk4::prelude::*;
@@ -25,12 +31,20 @@ use crate::dbus::access_point::Network;
 use crate::dbus::bluetooth_device::BluetoothDevice;
 use crate::dbus::bluetooth_manager::BluetoothManager;
 use crate::dbus::network_manager::WifiManager;
+use crate::dbus::vpn_manager::{VpnActive, VpnManager};
 use crate::ui::network_list;
 use crate::ui::window::PanelWidgets;
 
 /// Shared application state accessible from GTK callbacks.
+#[derive(Clone)]
+struct PendingVpnAction {
+    label: String,
+    started_at: Instant,
+}
+
 struct AppState {
     wifi: WifiManager,
+    vpn: VpnManager,
     /// The network list — refreshed on scan.
     networks: Vec<Network>,
     /// Index of the currently selected network (for password entry).
@@ -64,6 +78,16 @@ struct AppState {
     wifi_row_ssids: Vec<Option<String>>,
     /// Pending Wi-Fi actions by SSID.
     wifi_pending: HashMap<String, String>,
+    /// Pending VPN actions by Settings.Connection path.
+    vpn_pending: HashMap<String, PendingVpnAction>,
+    /// Cached active VPN connections keyed by Settings.Connection path.
+    vpn_active_by_conn: HashMap<String, VpnActive>,
+    /// Periodic refresh timer for VPN list (when VPN sub-tab is active).
+    vpn_refresh_source: Option<glib::SourceId>,
+    /// Number of in-flight VPN operations; disables action buttons while > 0.
+    vpn_busy_count: usize,
+    /// Prevent re-entrant single-active normalization loops.
+    vpn_normalizing: bool,
 }
 
 
@@ -76,8 +100,10 @@ pub fn setup(
     scan_requested: std::sync::Arc<std::sync::atomic::AtomicBool>,
     panel_state: crate::daemon::PanelState,
 ) {
+    let vpn = VpnManager::new(wifi.connection());
     let state = Rc::new(RefCell::new(AppState {
         wifi,
+        vpn,
         networks: Vec::new(),
         selected_ssid: None,
         bluetooth: None,
@@ -94,6 +120,11 @@ pub fn setup(
         wifi_bg_reconnect_source: None,
         wifi_row_ssids: Vec::new(),
         wifi_pending: HashMap::new(),
+        vpn_pending: HashMap::new(),
+        vpn_active_by_conn: HashMap::new(),
+        vpn_refresh_source: None,
+        vpn_busy_count: 0,
+        vpn_normalizing: false,
     }));
 
     connection::setup_wifi_toggle(widgets, Rc::clone(&state));
@@ -105,6 +136,7 @@ pub fn setup(
     bt_live_updates::setup_bt_live_updates(widgets, Rc::clone(&state));
     setup_scan_button_dispatch(widgets, Rc::clone(&state));
     setup_wifi_tab_sync(widgets, Rc::clone(&state));
+    vpn::setup_vpn(widgets, Rc::clone(&state), panel_state.clone());
     if widgets.wifi_tab.is_active() {
         scanning::start_wifi_auto_scan(
             Rc::clone(&state),
@@ -194,6 +226,7 @@ async fn refresh_list(
 fn setup_scan_button_dispatch(widgets: &PanelWidgets, state: Rc<RefCell<AppState>>) {
     let scan_btn = widgets.scan_button.clone();
     let bt_tab = widgets.bt_tab.clone();
+    let vpn_tab = widgets.wifi_vpn_tab.clone();
     let bt_list_box = widgets.bt_list_box.clone();
     let bt_spinner = widgets.bt_spinner.clone();
     let bt_scroll = widgets.bt_scroll.clone();
@@ -214,6 +247,8 @@ fn setup_scan_button_dispatch(widgets: &PanelWidgets, state: Rc<RefCell<AppState
                 bt_spinner.clone(),
                 bt_scroll.clone(),
             );
+        } else if vpn_tab.is_active() {
+            status.set_text("VPN view updates automatically");
         } else {
             scanning::run_manual_scan(
                 Rc::clone(&state),
@@ -230,21 +265,35 @@ fn setup_scan_button_dispatch(widgets: &PanelWidgets, state: Rc<RefCell<AppState
 /// Sync the toggle switch to WiFi power state when WiFi tab is activated.
 fn setup_wifi_tab_sync(widgets: &PanelWidgets, state: Rc<RefCell<AppState>>) {
     let wifi_tab = widgets.wifi_tab.clone();
+    let vpn_tab = widgets.wifi_vpn_tab.clone();
     let switch = widgets.wifi_switch.clone();
     let title = widgets.title_label.clone();
     let status = widgets.status_label.clone();
     let list_box = widgets.network_list_box.clone();
     let scan_btn = widgets.scan_button.clone();
+    let vpn_list_box = widgets.vpn_list_box.clone();
+    let vpn_spinner = widgets.vpn_spinner.clone();
+    let vpn_scroll = widgets.vpn_scroll.clone();
+    let vpn_import_btn = widgets.vpn_import_button.clone();
+    let vpn_open_btn = widgets.vpn_open_button.clone();
+    let window = widgets.window.clone();
 
     wifi_tab.connect_toggled(move |btn| {
         if !btn.is_active() {
             scanning::stop_wifi_auto_scan(&state);
+            vpn::stop_vpn_refresh(&state);
             return;
         }
 
         title.set_text("Wi-Fi");
         switch.set_tooltip_text(Some("Enable/Disable Wi-Fi"));
-        scan_btn.set_tooltip_text(Some("Scan for networks"));
+        if vpn_tab.is_active() {
+            scan_btn.set_sensitive(false);
+            scan_btn.set_tooltip_text(Some("Scan is disabled in VPN view"));
+        } else {
+            scan_btn.set_sensitive(true);
+            scan_btn.set_tooltip_text(Some("Scan for networks"));
+        }
 
         let state_for_refresh = Rc::clone(&state);
         let switch = switch.clone();
@@ -266,12 +315,27 @@ fn setup_wifi_tab_sync(widgets: &PanelWidgets, state: Rc<RefCell<AppState>>) {
             refresh_list(&state_for_refresh, &list_box_for_refresh, &status_for_refresh).await;
         });
 
-        scanning::start_wifi_auto_scan(
-            Rc::clone(&state),
-            btn.clone(),
-            list_box.clone(),
-            status.clone(),
-        );
+        if vpn_tab.is_active() {
+            vpn::start_vpn_refresh(
+                Rc::clone(&state),
+                btn.clone(),
+                vpn_tab.clone(),
+                window.clone(),
+                vpn_list_box.clone(),
+                status.clone(),
+                vpn_spinner.clone(),
+                vpn_scroll.clone(),
+                vpn_import_btn.clone(),
+                vpn_open_btn.clone(),
+            );
+        } else {
+            scanning::start_wifi_auto_scan(
+                Rc::clone(&state),
+                btn.clone(),
+                list_box.clone(),
+                status.clone(),
+            );
+        }
     });
 }
 
@@ -299,6 +363,7 @@ fn setup_visibility_pause(
                 scanning::stop_wifi_auto_scan(&state);
                 // Stop bg reconnect too — panel is opening so fast loop takes over.
                 scanning::stop_wifi_bg_reconnect(&state);
+                vpn::stop_vpn_refresh(&state);
                 bluetooth::stop_bt_background_tasks(&state);
                 let state_bt = Rc::clone(&state);
                 glib::spawn_future_local(async move {

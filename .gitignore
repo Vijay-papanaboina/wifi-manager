@@ -15,6 +15,7 @@ pkg/
 
 # AUR repo directory
 aur-wifi-manager-git/
+aur-wifi-manager-bin/
 
 # IDE / Editor
 .vscode/

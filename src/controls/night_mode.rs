@@ -100,7 +100,6 @@ pub const NIGHT_MODE_INIT_TIMEOUT: std::time::Duration = std::time::Duration::fr
 /// color temperatures to the compositor for night mode rendering.
 pub struct NightModeManager {
     sender: Option<mpsc::Sender<f64>>,
-    current_temp: std::sync::Arc<std::sync::atomic::AtomicU32>,
     wayland_handle: Option<thread::JoinHandle<()>>,
 }
 
@@ -127,7 +126,6 @@ impl NightModeManager {
         match init_rx.recv_timeout(NIGHT_MODE_INIT_TIMEOUT) {
             Ok(Ok(())) => Ok(NightModeManager {
                 sender: Some(tx),
-                current_temp,
                 wayland_handle: Some(handle),
             }),
             Ok(Err(e)) => Err(e),

@@ -5,4 +5,6 @@ pub mod header;
 pub mod network_list;
 pub mod network_row;
 pub mod password_dialog;
+pub mod vpn_list;
+pub mod vpn_row;
 pub mod window;

@@ -7,11 +7,11 @@
 use gtk4::prelude::*;
 use gtk4::{
     Application, ApplicationWindow, Box as GtkBox, CssProvider, ListBox, Orientation, Stack,
-    StackTransitionType, gdk,
+    StackTransitionType, ToggleButton, gdk,
 };
 use gtk4_layer_shell::{Edge, KeyboardMode, Layer, LayerShell};
 
-use super::{device_list, header, network_list, password_dialog, controls_panel};
+use super::{controls_panel, device_list, header, network_list, password_dialog, vpn_list};
 use crate::config::{Config, Position};
 
 /// Minimum pixel height for list boxes (shows ~3 items)
@@ -33,6 +33,9 @@ pub struct PanelWidgets {
     pub wifi_tab: gtk4::ToggleButton,
     pub bt_tab: gtk4::ToggleButton,
     // Wi-Fi page
+    pub wifi_networks_tab: ToggleButton,
+    pub wifi_vpn_tab: ToggleButton,
+    pub wifi_sub_stack: Stack,
     pub network_list_box: ListBox,
     pub network_scroll: gtk4::ScrolledWindow,
     pub spinner: gtk4::Spinner,
@@ -41,6 +44,12 @@ pub struct PanelWidgets {
     pub connect_button: gtk4::Button,
     pub cancel_button: gtk4::Button,
     pub error_label: gtk4::Label,
+    // VPN page (inside Wi-Fi tab)
+    pub vpn_import_button: gtk4::Button,
+    pub vpn_open_button: gtk4::Button,
+    pub vpn_list_box: ListBox,
+    pub vpn_scroll: gtk4::ScrolledWindow,
+    pub vpn_spinner: gtk4::Spinner,
     // Bluetooth page
     pub bt_list_box: ListBox,
     pub bt_scroll: gtk4::ScrolledWindow,
@@ -96,6 +105,43 @@ pub fn build_window(app: &Application) -> PanelWidgets {
     // ── Wi-Fi page ──────────────────────────────────────────────────
     let wifi_page = GtkBox::new(Orientation::Vertical, 0);
 
+    // Sub-tabs inside Wi-Fi: Networks / VPN
+    let wifi_subtab_bar = GtkBox::new(Orientation::Horizontal, 0);
+    wifi_subtab_bar.add_css_class("subtab-bar");
+    wifi_subtab_bar.set_margin_top(6);
+    wifi_subtab_bar.set_margin_bottom(6);
+
+    let wifi_networks_tab = ToggleButton::with_label("Networks");
+    wifi_networks_tab.add_css_class("subtab-button");
+    wifi_networks_tab.add_css_class("tab-active");
+    wifi_networks_tab.set_active(true);
+    wifi_networks_tab.set_hexpand(true);
+    if let Some(cursor) = gtk4::gdk::Cursor::from_name("pointer", None) {
+        wifi_networks_tab.set_cursor(Some(&cursor));
+    }
+
+    let wifi_vpn_tab = ToggleButton::with_label("VPN");
+    wifi_vpn_tab.add_css_class("subtab-button");
+    wifi_vpn_tab.set_hexpand(true);
+    if let Some(cursor) = gtk4::gdk::Cursor::from_name("pointer", None) {
+        wifi_vpn_tab.set_cursor(Some(&cursor));
+    }
+
+    wifi_networks_tab.set_group(Some(&wifi_vpn_tab));
+
+    wifi_subtab_bar.append(&wifi_networks_tab);
+    wifi_subtab_bar.append(&wifi_vpn_tab);
+    wifi_page.append(&wifi_subtab_bar);
+
+    let wifi_sub_stack = Stack::new();
+    wifi_sub_stack.set_transition_type(StackTransitionType::Crossfade);
+    wifi_sub_stack.set_transition_duration(150);
+    wifi_sub_stack.set_vexpand(true);
+    wifi_sub_stack.add_css_class("wifi-sub-stack");
+
+    // Networks view
+    let wifi_networks_view = GtkBox::new(Orientation::Vertical, 0);
+
     let (scrolled, list_box) = network_list::build_network_list();
 
     let spinner = gtk4::Spinner::new();
@@ -107,13 +153,60 @@ pub fn build_window(app: &Application) -> PanelWidgets {
     spinner.set_margin_top(20);
     spinner.set_margin_bottom(20);
 
-    wifi_page.append(&spinner);
-    wifi_page.append(&scrolled);
+    wifi_networks_view.append(&spinner);
+    wifi_networks_view.append(&scrolled);
     scrolled.set_visible(false);
 
     let (revealer, entry, connect_btn, cancel_btn, error_label) =
         password_dialog::build_password_section();
-    wifi_page.append(&revealer);
+    wifi_networks_view.append(&revealer);
+
+    wifi_sub_stack.add_named(&wifi_networks_view, Some("networks"));
+
+    // VPN view
+    let vpn_view = GtkBox::new(Orientation::Vertical, 0);
+    let vpn_actions = GtkBox::new(Orientation::Horizontal, 8);
+    vpn_actions.add_css_class("vpn-actions-row");
+    vpn_actions.set_margin_start(20);
+    vpn_actions.set_margin_end(20);
+    vpn_actions.set_margin_bottom(6);
+
+    let vpn_import_button = gtk4::Button::with_label("Import Profile");
+    vpn_import_button.add_css_class("vpn-action-btn");
+    vpn_import_button.set_hexpand(true);
+    if let Some(cursor) = gtk4::gdk::Cursor::from_name("pointer", None) {
+        vpn_import_button.set_cursor(Some(&cursor));
+    }
+
+    let vpn_open_button = gtk4::Button::with_label("Open Settings");
+    vpn_open_button.add_css_class("vpn-action-btn");
+    vpn_open_button.set_hexpand(true);
+    if let Some(cursor) = gtk4::gdk::Cursor::from_name("pointer", None) {
+        vpn_open_button.set_cursor(Some(&cursor));
+    }
+
+    vpn_actions.append(&vpn_import_button);
+    vpn_actions.append(&vpn_open_button);
+    vpn_view.append(&vpn_actions);
+
+    let (vpn_scrolled, vpn_list_box) = vpn_list::build_vpn_list();
+
+    let vpn_spinner = gtk4::Spinner::new();
+    vpn_spinner.set_spinning(true);
+    vpn_spinner.add_css_class("loading-spinner");
+    vpn_spinner.set_size_request(32, MIN_LIST_HEIGHT);
+    vpn_spinner.set_halign(gtk4::Align::Center);
+    vpn_spinner.set_valign(gtk4::Align::Center);
+    vpn_spinner.set_margin_top(20);
+    vpn_spinner.set_margin_bottom(20);
+
+    vpn_view.append(&vpn_spinner);
+    vpn_view.append(&vpn_scrolled);
+    vpn_scrolled.set_visible(false);
+
+    wifi_sub_stack.add_named(&vpn_view, Some("vpn"));
+    wifi_sub_stack.set_visible_child_name("networks");
+    wifi_page.append(&wifi_sub_stack);
 
     content_stack.add_named(&wifi_page, Some("wifi"));
 
@@ -183,6 +276,24 @@ pub fn build_window(app: &Application) -> PanelWidgets {
         });
     }
 
+    // ── Wi-Fi sub-tabs (Networks / VPN) ─────────────────────────────
+    {
+        let sub_stack = wifi_sub_stack.clone();
+        wifi_networks_tab.connect_toggled(move |btn| {
+            if btn.is_active() {
+                sub_stack.set_visible_child_name("networks");
+            }
+        });
+    }
+    {
+        let sub_stack = wifi_sub_stack.clone();
+        wifi_vpn_tab.connect_toggled(move |btn| {
+            if btn.is_active() {
+                sub_stack.set_visible_child_name("vpn");
+            }
+        });
+    }
+
     window.set_child(Some(&main_box));
 
     // Load CSS theme
@@ -198,6 +309,9 @@ pub fn build_window(app: &Application) -> PanelWidgets {
         scan_button: header.scan_button,
         wifi_tab: header.wifi_tab,
         bt_tab: header.bt_tab,
+        wifi_networks_tab,
+        wifi_vpn_tab,
+        wifi_sub_stack,
         network_list_box: list_box,
         network_scroll: scrolled,
         spinner,
@@ -206,6 +320,11 @@ pub fn build_window(app: &Application) -> PanelWidgets {
         connect_button: connect_btn,
         cancel_button: cancel_btn,
         error_label,
+        vpn_import_button,
+        vpn_open_button,
+        vpn_list_box,
+        vpn_scroll: vpn_scrolled,
+        vpn_spinner,
         bt_list_box,
         bt_scroll: bt_scrolled,
         bt_spinner,

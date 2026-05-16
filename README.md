@@ -27,17 +27,9 @@ A lightweight, native WiFi and Bluetooth manager for Wayland compositors. Built 
 
 ## Why
 
-There is no widely adopted standalone GUI WiFi manager designed specifically for Wayland compositors:
+**wifi-manager** is a small floating panel for managing Wi‑Fi and Bluetooth on Wayland compositors.
 
-| Existing tool          | Problem                                                          |
-| ---------------------- | ---------------------------------------------------------------- |
-| `nm-applet`            | Tray-based, scan/connect dropdown broken on Wayland              |
-| `nm-connection-editor` | Only edits saved connections, no scanning                        |
-| `nmtui`                | Terminal TUI, not a GUI                                          |
-| `iwgtk`                | Requires iwd, most distros use NetworkManager                    |
-| Rofi/wofi scripts      | No real UI — no signal bars, no live updates, no visual feedback |
-
-**wifi-manager** fills this gap: a floating panel that manages WiFi and Bluetooth with a proper GUI, live state updates, and full theming support.
+It focuses on quick scanning, connect/disconnect, live state updates, and theming — without relying on a system tray.
 
 ## Features
 
@@ -66,6 +58,7 @@ There is no widely adopted standalone GUI WiFi manager designed specifically for
 
 - **Brightness & Volume Controls** — dedicated sliders statically pinned to the bottom of the panel,
   syncing in real-time with system events via `libpulse` and `systemd-logind`
+- **Quick Toggles** — click the Brightness / Volume / Night Mode icons to quick-dim, mute, or toggle Night Mode (Night Mode state is persisted)
 - **Night Mode (Color Temperature)** — dedicated slider to adjust display warmth,
   powered by Wayland's `wlr-gamma-control` protocol
 - **System Power Controls** — native buttons for Shutdown, Reboot, Suspend, and Logout,
@@ -88,7 +81,7 @@ There is no widely adopted standalone GUI WiFi manager designed specifically for
 
 ### Arch Linux (AUR)
 
-**Package:** `wifi-manager-git` — tracks the latest development version from the `master` branch.
+**Package:** `wifi-manager-git` — tracks the latest development version from the `main` branch.
 
 ```sh
 yay -S wifi-manager-git
@@ -215,6 +208,42 @@ The layer namespace is `wifi-manager` (visible in `hyprctl layers`). You can tar
 ## Configuration
 
 Configuration is loaded from `~/.config/wifi-manager/config.toml`. All fields are optional and fall back to defaults.
+
+> **Note:** Runtime state (e.g., Night Mode enabled + temperature) is stored in `~/.config/wifi-manager/state.toml` and is managed by the app.
+
+> **Tip (advanced):** If your system UI feels slow to reflect Wi-Fi state changes, you may get faster updates by switching NetworkManager's Wi-Fi backend from `wpa_supplicant` to `iwd`. This is system-wide (not specific to wifi-manager). It can also break Wi‑Fi entirely if misconfigured (especially WPA‑Enterprise), so change it only if you're comfortable undoing it.
+>
+> **Enable iwd backend (NetworkManager):**
+>
+> ```sh
+> # Arch example
+> sudo pacman -S iwd
+>
+> sudo mkdir -p /etc/NetworkManager/conf.d
+> sudo tee /etc/NetworkManager/conf.d/wifi_backend.conf >/dev/null <<'EOF'
+> [device]
+> wifi.backend=iwd
+> EOF
+>
+> # Apply changes (a reboot is the most reliable option)
+> sudo reboot
+> ```
+>
+> If Wi‑Fi doesn't come back after switching:
+>
+> ```sh
+> # Some setups require iwd to be running explicitly
+> sudo systemctl enable --now iwd.service
+>
+> # If you still have issues, revert to wpa_supplicant backend:
+> sudo rm -f /etc/NetworkManager/conf.d/wifi_backend.conf
+>
+> # If you enabled iwd manually, disable it on revert:
+> sudo systemctl disable --now iwd.service
+>
+> # Reboot again to fully reset networking state:
+> sudo reboot
+> ```
 
 ```toml
 # Window position on screen.
