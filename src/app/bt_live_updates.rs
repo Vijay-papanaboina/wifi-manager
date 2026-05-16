@@ -11,7 +11,7 @@ use gtk4::prelude::*;
 use crate::dbus::bluez_proxies::BluezObjectManagerProxy;
 use crate::ui::window::PanelWidgets;
 
-use super::bluetooth::refresh_bt_list;
+use super::bt_helpers::refresh_bt_list;
 use super::AppState;
 
 /// Subscribe to BlueZ ObjectManager signals for live BT updates.

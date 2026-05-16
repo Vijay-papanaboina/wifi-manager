@@ -7,13 +7,17 @@
 //! - `shortcuts` — Escape key, reload polling
 
 mod bluetooth;
+mod bt_helpers;
 mod bt_live_updates;
+mod bt_scanning;
 mod connection;
 mod controls;
 mod live_updates;
 mod scanning;
 mod shortcuts;
 mod vpn;
+mod vpn_import;
+mod vpn_utils;
 
 use std::cell::RefCell;
 use std::collections::HashMap;

@@ -1,11 +1,11 @@
 //! VPN UI — lists NetworkManager VPN/WireGuard profiles and allows toggle connect/disconnect.
+//!
+//! Signal setup lives in `setup_vpn`; refresh loop in `start/stop_vpn_refresh`.
+//! Helpers are in `vpn_utils`; import flow is in `vpn_import`.
 
 use std::cell::RefCell;
-use std::collections::HashSet;
-use std::path::Path;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
-use std::process::Command;
 
 use futures_util::StreamExt;
 use gtk4::glib;
@@ -16,6 +16,11 @@ use crate::ui::vpn_list;
 use crate::ui::window::PanelWidgets;
 
 use super::{AppState, PendingVpnAction};
+use super::vpn_utils::{
+    confirm_delete_dialog, find_blocking_active_path_for_connect, humanize_vpn_error,
+    launch_nm_connection_editor, update_vpn_header_status,
+};
+use super::vpn_import::open_import_dialog;
 
 const VPN_REFRESH_INTERVAL_MS: u64 = 5000;
 const VPN_PENDING_TIMEOUT_MS: u64 = 20_000;
@@ -55,8 +60,6 @@ pub(super) fn setup_vpn(
             if !btn.is_active() {
                 return;
             }
-
-            // Only do work if Wi-Fi top tab is active.
             if !wifi_tab.is_active() {
                 return;
             }
@@ -64,7 +67,6 @@ pub(super) fn setup_vpn(
             scan_btn.set_sensitive(false);
             scan_btn.set_tooltip_text(Some("Scan is disabled in VPN view"));
 
-            // Stop Wi-Fi auto scan while user is in VPN view.
             super::scanning::stop_wifi_auto_scan(&state);
 
             start_vpn_refresh(
@@ -152,7 +154,7 @@ pub(super) fn start_vpn_refresh(
         return;
     }
 
-    // Refresh immediately.
+    // Immediate refresh on activation.
     glib::spawn_future_local({
         let state = Rc::clone(&state);
         let list_box = list_box.clone();
@@ -165,7 +167,7 @@ pub(super) fn start_vpn_refresh(
         }
     });
 
-    // Push updates immediately when NM active connection set changes.
+    // React to NM active-connection changes immediately.
     glib::spawn_future_local({
         let state = Rc::clone(&state);
         let wifi_tab = wifi_tab.clone();
@@ -202,6 +204,7 @@ pub(super) fn start_vpn_refresh(
         }
     });
 
+    // Periodic polling fallback.
     let id = glib::timeout_add_local(
         std::time::Duration::from_millis(VPN_REFRESH_INTERVAL_MS),
         {
@@ -240,7 +243,7 @@ pub(super) fn stop_vpn_refresh(state: &Rc<RefCell<AppState>>) {
     }
 }
 
-async fn refresh_vpn_list(
+pub(super) async fn refresh_vpn_list(
     state: Rc<RefCell<AppState>>,
     window: gtk4::ApplicationWindow,
     list_box: gtk4::ListBox,
@@ -274,8 +277,6 @@ async fn refresh_vpn_list(
         let mut st = state.borrow_mut();
         st.vpn_active_by_conn = active_by_conn.clone();
 
-        // Clear pending labels once the active state stabilizes and
-        // force-unlock rows if NM keeps them in pending too long.
         let now = Instant::now();
         let timeout = Duration::from_millis(VPN_PENDING_TIMEOUT_MS);
         st.vpn_pending.retain(|conn_path, pending| {
@@ -290,8 +291,6 @@ async fn refresh_vpn_list(
         });
     }
 
-    // Keep header status in sync with current VPN state instead of sticking
-    // to the last manual action text.
     update_vpn_header_status(&status, &profiles, &active_by_conn);
 
     let on_toggle: Rc<dyn Fn(String, bool)> = {
@@ -466,303 +465,17 @@ async fn refresh_vpn_list(
             .map(|(k, v)| (k.clone(), v.label.clone()))
             .collect::<std::collections::HashMap<String, String>>()
     };
-    let _row_paths =
-        vpn_list::populate_vpn_list(
-            &list_box,
-            &profiles,
-            &active_by_conn,
-            &pending,
-            on_toggle,
-            on_edit,
-            on_delete,
-        );
+    let _row_paths = vpn_list::populate_vpn_list(
+        &list_box,
+        &profiles,
+        &active_by_conn,
+        &pending,
+        on_toggle,
+        on_edit,
+        on_delete,
+    );
 
     spinner.set_spinning(false);
     spinner.set_visible(false);
     scrolled.set_visible(true);
-}
-
-fn find_blocking_active_path_for_connect(
-    st: &AppState,
-    target_conn_path: &str,
-) -> Option<String> {
-    for net in st.vpn_active_by_conn.values() {
-        if net.connection_path == target_conn_path {
-            continue;
-        }
-        if net.state == 1 || net.state == 2 {
-            return Some(net.active_path.clone());
-        }
-    }
-    None
-}
-
-fn update_vpn_header_status(
-    status: &gtk4::Label,
-    profiles: &[crate::dbus::vpn_manager::VpnProfile],
-    active_by_conn: &std::collections::HashMap<String, crate::dbus::vpn_manager::VpnActive>,
-) {
-    let mut connected_name: Option<&str> = None;
-    let mut connecting_name: Option<&str> = None;
-    let mut disconnecting_name: Option<&str> = None;
-
-    for profile in profiles {
-        if let Some(active) = active_by_conn.get(&profile.connection_path) {
-            match active.state {
-                2 => connected_name = Some(&profile.name),
-                1 => connecting_name = Some(&profile.name),
-                3 => disconnecting_name = Some(&profile.name),
-                _ => {}
-            }
-        }
-    }
-
-    if let Some(name) = connected_name {
-        status.set_text(&format!("VPN connected: {name}"));
-    } else if let Some(name) = connecting_name {
-        status.set_text(&format!("VPN connecting: {name}"));
-    } else if let Some(name) = disconnecting_name {
-        status.set_text(&format!("VPN disconnecting: {name}"));
-    } else {
-        status.set_text("VPN disconnected");
-    }
-}
-
-fn humanize_vpn_error(err: &str) -> String {
-    let lower = err.to_lowercase();
-    if lower.contains("no agents were available")
-        || lower.contains("no secret agent")
-        || lower.contains("secrets")
-    {
-        return "missing credentials/secrets".to_string();
-    }
-    if lower.contains("permission denied") || lower.contains("not authorized") {
-        return "permission denied".to_string();
-    }
-    if lower.contains("timeout") {
-        return "operation timed out".to_string();
-    }
-    if lower.contains("failed") && lower.contains("connect") {
-        return "connection failed".to_string();
-    }
-    err.to_string()
-}
-
-fn launch_nm_connection_editor(
-    uuid: Option<String>,
-    panel_state: Option<&crate::daemon::PanelState>,
-    window: Option<&gtk4::ApplicationWindow>,
-) -> Result<(), String> {
-    let mut cmd = Command::new("nm-connection-editor");
-    if let Some(uuid) = uuid {
-        if !uuid.is_empty() {
-            cmd.arg("--edit").arg(uuid);
-        }
-    }
-    cmd.spawn()
-        .map(|_| {
-            if let Some(state) = panel_state {
-                state.hide();
-            } else if let Some(win) = window {
-                win.set_visible(false);
-            }
-        })
-        .map_err(|e| format!("launch error: {e}"))
-}
-
-fn open_import_dialog(
-    state: Rc<RefCell<AppState>>,
-    window: gtk4::ApplicationWindow,
-    list_box: gtk4::ListBox,
-    status: gtk4::Label,
-    spinner: gtk4::Spinner,
-    scrolled: gtk4::ScrolledWindow,
-) {
-    let chooser = gtk4::FileChooserNative::new(
-        Some("Import VPN Profile"),
-        None::<&gtk4::Window>,
-        gtk4::FileChooserAction::Open,
-        Some("Import"),
-        Some("Cancel"),
-    );
-    let filter = gtk4::FileFilter::new();
-    filter.add_pattern("*.ovpn");
-    filter.add_pattern("*.conf");
-    filter.set_name(Some("VPN Profiles (*.ovpn, *.conf)"));
-    chooser.set_filter(&filter);
-
-    chooser.connect_response(move |dialog, resp| {
-        if resp != gtk4::ResponseType::Accept {
-            dialog.destroy();
-            return;
-        }
-        let Some(file) = dialog.file() else {
-            dialog.destroy();
-            return;
-        };
-        let Some(path) = file.path() else {
-            dialog.destroy();
-            return;
-        };
-        dialog.destroy();
-
-        match import_vpn_profile(&path) {
-            Ok(msg) => {
-                status.set_text(&msg);
-                schedule_post_import_refresh(
-                    Rc::clone(&state),
-                    window.clone(),
-                    list_box.clone(),
-                    status.clone(),
-                    spinner.clone(),
-                    scrolled.clone(),
-                );
-            }
-            Err(e) => {
-                status.set_text(&format!("Import failed: {e}"));
-            }
-        }
-    });
-    chooser.show();
-}
-
-fn schedule_post_import_refresh(
-    state: Rc<RefCell<AppState>>,
-    window: gtk4::ApplicationWindow,
-    list_box: gtk4::ListBox,
-    status: gtk4::Label,
-    spinner: gtk4::Spinner,
-    scrolled: gtk4::ScrolledWindow,
-) {
-    // NM may finish activation shortly after nmcli import returns.
-    // Refresh in brief bursts so connected state is reflected without tab reopen.
-    let delays_ms = [0_u64, 800, 1800, 3200];
-    for delay in delays_ms {
-        let state = Rc::clone(&state);
-        let window = window.clone();
-        let list_box = list_box.clone();
-        let status = status.clone();
-        let spinner = spinner.clone();
-        let scrolled = scrolled.clone();
-        glib::timeout_add_local(std::time::Duration::from_millis(delay), move || {
-            glib::spawn_future_local({
-                let state = Rc::clone(&state);
-                let window = window.clone();
-                let list_box = list_box.clone();
-                let status = status.clone();
-                let spinner = spinner.clone();
-                let scrolled = scrolled.clone();
-                async move {
-                    refresh_vpn_list(state, window, list_box, status, spinner, scrolled).await;
-                }
-            });
-            glib::ControlFlow::Break
-        });
-    }
-}
-
-fn import_vpn_profile(path: &Path) -> Result<String, String> {
-    let before = list_vpn_profile_uuids()?;
-
-    let ext = path
-        .extension()
-        .and_then(|e| e.to_str())
-        .map(|e| e.to_ascii_lowercase())
-        .unwrap_or_default();
-    let nm_type = match ext.as_str() {
-        "ovpn" => "openvpn",
-        "conf" => "wireguard",
-        _ => return Err("unsupported file type (use .ovpn or .conf)".to_string()),
-    };
-
-    let output = Command::new("nmcli")
-        .arg("connection")
-        .arg("import")
-        .arg("type")
-        .arg(nm_type)
-        .arg("file")
-        .arg(path.as_os_str())
-        .output()
-        .map_err(|e| format!("failed to run nmcli: {e}"))?;
-
-    if output.status.success() {
-        let after = list_vpn_profile_uuids()?;
-        let imported: Vec<String> = after.difference(&before).cloned().collect();
-        for uuid in &imported {
-            let _ = run_nmcli(&[
-                "connection",
-                "modify",
-                "uuid",
-                uuid,
-                "connection.autoconnect",
-                "no",
-            ]);
-            // If NM auto-activated the imported profile, bring it down now.
-            let _ = run_nmcli(&["connection", "down", "uuid", uuid]);
-        }
-        if imported.is_empty() {
-            Ok("VPN profile imported".to_string())
-        } else {
-            Ok("VPN profile imported (autoconnect disabled)".to_string())
-        }
-    } else {
-        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-        if stderr.is_empty() {
-            Err("nmcli import failed".to_string())
-        } else {
-            Err(stderr)
-        }
-    }
-}
-
-fn list_vpn_profile_uuids() -> Result<HashSet<String>, String> {
-    let output = run_nmcli(&["-t", "-f", "UUID,TYPE", "connection", "show"])?;
-    if !output.status.success() {
-        return Err("failed to list NetworkManager connections".to_string());
-    }
-    let mut out = HashSet::new();
-    for line in String::from_utf8_lossy(&output.stdout).lines() {
-        let mut parts = line.splitn(2, ':');
-        let uuid = parts.next().unwrap_or("").trim();
-        let kind = parts.next().unwrap_or("").trim();
-        if uuid.is_empty() {
-            continue;
-        }
-        if kind == "vpn" || kind == "wireguard" {
-            out.insert(uuid.to_string());
-        }
-    }
-    Ok(out)
-}
-
-fn run_nmcli(args: &[&str]) -> Result<std::process::Output, String> {
-    Command::new("nmcli")
-        .args(args)
-        .output()
-        .map_err(|e| format!("failed to run nmcli: {e}"))
-}
-
-fn confirm_delete_dialog(
-    parent: &gtk4::ApplicationWindow,
-    vpn_name: &str,
-    on_confirm: impl Fn() + 'static,
-) {
-    let dialog = gtk4::MessageDialog::builder()
-        .transient_for(parent)
-        .modal(true)
-        .text("Delete VPN profile?")
-        .secondary_text(format!(
-            "Are you sure you want to delete \"{}\"?",
-            vpn_name
-        ))
-        .build();
-    dialog.add_button("Cancel", gtk4::ResponseType::Cancel);
-    dialog.add_button("Delete", gtk4::ResponseType::Accept);
-    dialog.connect_response(move |d, resp| {
-        if resp == gtk4::ResponseType::Accept {
-            on_confirm();
-        }
-        d.close();
-    });
-    dialog.present();
 }
