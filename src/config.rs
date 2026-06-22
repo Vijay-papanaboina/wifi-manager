@@ -48,6 +48,24 @@ pub struct Config {
     /// Custom saved icon for saved networks
     pub saved_icon: String,
 
+    /// Custom icon for Night Mode enabled
+    pub night_mode_on_icon: String,
+
+    /// Custom icon for Night Mode disabled
+    pub night_mode_off_icon: String,
+
+    /// Custom icon for logout action
+    pub logout_icon: String,
+
+    /// Custom icon for reboot action
+    pub reboot_icon: String,
+
+    /// Custom icon for suspend / sleep action
+    pub suspend_icon: String,
+
+    /// Custom icon for power off action
+    pub poweroff_icon: String,
+
     /// Whether to show the panel when the daemon starts (default: false)
     pub show_on_start: bool,
 }
@@ -68,6 +86,12 @@ impl Default for Config {
             ],
             lock_icon: "󰌾".to_string(),
             saved_icon: "".to_string(),
+            night_mode_on_icon: "".to_string(),
+            night_mode_off_icon: "".to_string(),
+            logout_icon: "".to_string(),
+            reboot_icon: "".to_string(),
+            suspend_icon: "󰒲".to_string(),
+            poweroff_icon: "".to_string(),
             show_on_start: false,
         }
     }

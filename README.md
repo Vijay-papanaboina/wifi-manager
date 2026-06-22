@@ -262,6 +262,17 @@ margin_left = 10
 # Default: Nerd Fonts WiFi icons
 signal_icons = ["󰤟", "󰤢", "󰤥", "󰤨"]
 
+# Custom control icons (Nerd Font / font glyphs)
+# Night Mode toggles:
+# night_mode_off_icon = ""
+# night_mode_on_icon  = ""
+#
+# Power actions:
+# logout_icon   = ""
+# reboot_icon   = ""
+# suspend_icon  = "󰒲"
+# poweroff_icon = ""
+
 # Whether to show the panel immediately when the daemon starts (default: false)
 show_on_start = false
 

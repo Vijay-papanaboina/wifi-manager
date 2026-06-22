@@ -1,7 +1,42 @@
-use gtk4::{prelude::*, glib, Box, Orientation, Scale, Image, Revealer, ToggleButton, RevealerTransitionType, Button, Window};
+use gtk4::{prelude::*, glib, Box, Button, Image, Label, Orientation, Revealer, RevealerTransitionType, Scale, ToggleButton, Window};
+
+use crate::config::Config;
 
 /// Duration of the slider reveal animation in milliseconds
 pub const SLIDE_TRANSITION_MS: u32 = 250;
+
+fn make_glyph_button(icon: &str, tooltip: &str) -> Button {
+    let label = Label::builder()
+        .label(icon)
+        .halign(gtk4::Align::Center)
+        .valign(gtk4::Align::Center)
+        .build();
+    label.add_css_class("glyph-button-label");
+
+    let button = Button::builder()
+        .child(&label)
+        .tooltip_text(tooltip)
+        .cursor(&gtk4::gdk::Cursor::from_name("pointer", None).unwrap())
+        .build();
+    button.add_css_class("flat");
+    button.add_css_class("circular");
+    button.add_css_class("glyph-button");
+    button
+}
+
+pub(crate) fn set_button_glyph(button: &Button, glyph: &str) {
+    if let Some(label) = button.child().and_downcast::<Label>() {
+        label.set_label(glyph);
+    } else {
+        let label = Label::builder()
+            .label(glyph)
+            .halign(gtk4::Align::Center)
+            .valign(gtk4::Align::Center)
+            .build();
+        label.add_css_class("glyph-button-label");
+        button.set_child(Some(&label));
+    }
+}
 
 fn show_confirm_dialog(window: &Window, title: &str, message: &str, action: impl FnOnce() + 'static) {
     let dialog = gtk4::AlertDialog::builder()
@@ -74,6 +109,7 @@ impl ControlsPanel {
     pub fn toggle_button(&self) -> &ToggleButton { &self.toggle_button }
 
     pub fn new() -> Self {
+        let config = Config::load();
         let container = Box::builder()
             .orientation(Orientation::Vertical)
             .spacing(12)
@@ -191,13 +227,7 @@ impl ControlsPanel {
             .build();
 
         // Clickable moon icon: click to toggle Night Mode on/off
-        let night_mode_btn = Button::builder()
-            .icon_name("night-light-symbolic")
-            .tooltip_text("Click to toggle Night Mode")
-            .cursor(&gtk4::gdk::Cursor::from_name("pointer", None).unwrap())
-            .build();
-        night_mode_btn.add_css_class("flat");
-        night_mode_btn.add_css_class("circular");
+        let night_mode_btn = make_glyph_button(&config.night_mode_off_icon, "Click to toggle Night Mode");
             
         // Map 0 -> 6500K (coolest/no effect), 3500 -> 3000K (warmest)
         let night_mode_scale = Scale::builder()
@@ -249,40 +279,16 @@ impl ControlsPanel {
             });
         }
 
-        let btn_poweroff = Button::builder()
-            .icon_name("system-shutdown-symbolic")
-            .tooltip_text("Power Off")
-            .cursor(&gtk4::gdk::Cursor::from_name("pointer", None).unwrap())
-            .build();
-        btn_poweroff.add_css_class("flat");
-        btn_poweroff.add_css_class("circular");
+        let btn_poweroff = make_glyph_button(&config.poweroff_icon, "Power Off");
         connect_power_button(&btn_poweroff, "Power Off", "Are you sure you want to power off the system?", crate::controls::power::poweroff);
         
-        let btn_reboot = Button::builder()
-            .icon_name("system-reboot-symbolic")
-            .tooltip_text("Reboot")
-            .cursor(&gtk4::gdk::Cursor::from_name("pointer", None).unwrap())
-            .build();
-        btn_reboot.add_css_class("flat");
-        btn_reboot.add_css_class("circular");
+        let btn_reboot = make_glyph_button(&config.reboot_icon, "Reboot");
         connect_power_button(&btn_reboot, "Reboot", "Are you sure you want to reboot the system?", crate::controls::power::reboot);
         
-        let btn_suspend = Button::builder()
-            .icon_name("weather-clear-night-symbolic")
-            .tooltip_text("Suspend / Sleep")
-            .cursor(&gtk4::gdk::Cursor::from_name("pointer", None).unwrap())
-            .build();
-        btn_suspend.add_css_class("flat");
-        btn_suspend.add_css_class("circular");
+        let btn_suspend = make_glyph_button(&config.suspend_icon, "Suspend / Sleep");
         connect_power_button(&btn_suspend, "Suspend", "Are you sure you want to suspend the system?", crate::controls::power::suspend);
         
-        let btn_logout = Button::builder()
-            .icon_name("system-log-out-symbolic")
-            .tooltip_text("Log Out")
-            .cursor(&gtk4::gdk::Cursor::from_name("pointer", None).unwrap())
-            .build();
-        btn_logout.add_css_class("flat");
-        btn_logout.add_css_class("circular");
+        let btn_logout = make_glyph_button(&config.logout_icon, "Log Out");
         connect_power_button(&btn_logout, "Logout", "Are you sure you want to log out?", crate::controls::power::logout);
 
         power_row.append(&btn_logout);
