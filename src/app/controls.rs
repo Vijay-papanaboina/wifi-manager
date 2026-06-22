@@ -6,8 +6,9 @@ use gtk4::{glib, Scale};
 use crate::controls::brightness::BrightnessManager;
 use crate::controls::volume::VolumeManager;
 use crate::controls::night_mode::NightModeManager;
+use crate::config::Config;
 use crate::state::AppStateStore;
-use crate::ui::window::PanelWidgets;
+use crate::ui::{controls_panel, window::PanelWidgets};
 
 const NEUTRAL_TEMP_KELVIN: f64 = 6500.0;
 const MIN_TEMP_KELVIN: f64 = 3000.0;
@@ -49,6 +50,7 @@ fn kelvin_to_slider(kelvin: f64, max: f64) -> f64 {
 }
 
 pub fn setup_controls(widgets: &PanelWidgets) {
+    let config = Config::load();
     let brightness_scale = widgets.controls.brightness_scale().clone();
     let brightness_btn = widgets.controls.brightness_btn().clone();
     let volume_scale = widgets.controls.volume_scale().clone();
@@ -56,6 +58,8 @@ pub fn setup_controls(widgets: &PanelWidgets) {
     let volume_btn = widgets.controls.volume_btn().clone();
     let night_mode_scale = widgets.controls.night_mode_scale().clone();
     let night_mode_btn = widgets.controls.night_mode_btn().clone();
+    let night_mode_on_icon = config.night_mode_on_icon.clone();
+    let night_mode_off_icon = config.night_mode_off_icon.clone();
 
     // Load persisted dynamic state
     let state_store = Rc::new(RefCell::new(AppStateStore::load()));
@@ -224,12 +228,12 @@ pub fn setup_controls(widgets: &PanelWidgets) {
 
             if night_enabled {
                 n_scale.set_sensitive(true);
-                night_mode_btn.set_icon_name("night-light-symbolic");
+                controls_panel::set_button_glyph(&night_mode_btn, &night_mode_on_icon);
                 if let Err(e) = manager.set_temperature(night_temp) {
                     log::warn!("Failed to apply initial night mode temperature: {}", e);
                 }
             } else {
-                night_mode_btn.set_icon_name("night-light-disabled-symbolic");
+                controls_panel::set_button_glyph(&night_mode_btn, &night_mode_off_icon);
             }
 
             // ── Moon button: toggle Night Mode on/off ────────────────
@@ -244,13 +248,13 @@ pub fn setup_controls(widgets: &PanelWidgets) {
                 if new_enabled {
                     let temp = store_btn.borrow().night_mode.temperature;
                     n_scale_btn.set_sensitive(true);
-                    btn.set_icon_name("night-light-symbolic");
+                    controls_panel::set_button_glyph(btn, &night_mode_on_icon);
                     if let Err(e) = mgr_btn.set_temperature(temp) {
                         log::warn!("Failed to enable night mode: {}", e);
                     }
                 } else {
                     n_scale_btn.set_sensitive(false);
-                    btn.set_icon_name("night-light-disabled-symbolic");
+                    controls_panel::set_button_glyph(btn, &night_mode_off_icon);
                     if let Err(e) = mgr_btn.set_temperature(NEUTRAL_TEMP_KELVIN) {
                         log::warn!("Failed to disable night mode: {}", e);
                     }

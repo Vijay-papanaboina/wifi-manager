@@ -31,7 +31,7 @@
         buildInputs = with pkgs; [
           gtk4
           gtk4-layer-shell
-          networkmanager # for libnm
+          networkmanager # runtime dependency (NetworkManager service/tools)
           glib
           cairo
           pango

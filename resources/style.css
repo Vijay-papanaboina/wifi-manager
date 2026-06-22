@@ -167,6 +167,18 @@ switch slider {
   margin-left: 6px;
 }
 
+.glyph-button {
+  min-width: 34px;
+  min-height: 34px;
+  padding: 0;
+}
+
+.glyph-button-label {
+  font-size: 18px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.92);
+}
+
 .network-menu-btn {
   color: rgba(255, 255, 255, 0.3);
   min-width: 28px;
