@@ -65,6 +65,12 @@ struct AppState {
     bt_live_refresh_source: Option<glib::SourceId>,
     /// Whether Bluetooth auto-scan loop is active.
     bt_auto_scan_active: bool,
+    /// Generation used to invalidate in-flight Bluetooth scans/refreshes when
+    /// the tab is hidden or the adapter is powered off.
+    bt_task_generation: u64,
+    /// Whether a UI-triggered Bluetooth power transition is in flight.
+    /// External power signals defer scan-loop startup until it completes.
+    bt_power_transition_in_progress: bool,
     /// Whether a Bluetooth device menu is open (avoid refresh to prevent popover closing).
     bt_menu_open: bool,
     /// Whether a Wi-Fi scan is currently running.
@@ -114,6 +120,8 @@ pub fn setup(
         bt_auto_scan_source: None,
         bt_live_refresh_source: None,
         bt_auto_scan_active: false,
+        bt_task_generation: 0,
+        bt_power_transition_in_progress: false,
         bt_menu_open: false,
         wifi_scan_in_progress: false,
         wifi_auto_scan_source: None,
@@ -133,7 +141,11 @@ pub fn setup(
     live_updates::setup_live_updates(widgets, Rc::clone(&state), panel_state.visible.clone());
     scanning::setup_scan_on_show(widgets, Rc::clone(&state), scan_requested);
     bluetooth::setup_bluetooth(widgets, Rc::clone(&state));
-    bt_live_updates::setup_bt_live_updates(widgets, Rc::clone(&state));
+    bt_live_updates::setup_bt_live_updates(
+        widgets,
+        Rc::clone(&state),
+        panel_state.visible.clone(),
+    );
     setup_scan_button_dispatch(widgets, Rc::clone(&state));
     setup_wifi_tab_sync(widgets, Rc::clone(&state));
     vpn::setup_vpn(widgets, Rc::clone(&state), panel_state.clone());
@@ -301,18 +313,22 @@ fn setup_wifi_tab_sync(widgets: &PanelWidgets, state: Rc<RefCell<AppState>>) {
         let list_box = list_box.clone();
         let status_for_refresh = status.clone();
         let list_box_for_refresh = list_box.clone();
+        let wifi_tab_for_refresh = btn.clone();
 
         gtk4::glib::spawn_future_local(async move {
             let wifi = get_wifi(&state_for_refresh);
 
             // Sync switch to actual WiFi power state
             match wifi.is_wifi_enabled().await {
-                Ok(enabled) => switch.set_active(enabled),
+                Ok(enabled) if wifi_tab_for_refresh.is_active() => switch.set_active(enabled),
                 Err(e) => log::error!("Failed to get WiFi state on tab switch: {e}"),
+                _ => {}
             }
 
             // Refresh network list
-            refresh_list(&state_for_refresh, &list_box_for_refresh, &status_for_refresh).await;
+            if wifi_tab_for_refresh.is_active() {
+                refresh_list(&state_for_refresh, &list_box_for_refresh, &status_for_refresh).await;
+            }
         });
 
         if vpn_tab.is_active() {

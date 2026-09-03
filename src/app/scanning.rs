@@ -25,6 +25,8 @@ pub(super) fn setup_scan_on_show(
     let list_box = widgets.network_list_box.clone();
     let status = widgets.status_label.clone();
     let switch = widgets.wifi_switch.clone();
+    let wifi_tab = widgets.wifi_tab.clone();
+    let bt_tab = widgets.bt_tab.clone();
 
     glib::timeout_add_local(std::time::Duration::from_millis(200), move || {
         if scan_requested.swap(false, std::sync::atomic::Ordering::Relaxed) {
@@ -32,14 +34,35 @@ pub(super) fn setup_scan_on_show(
             let list_box = list_box.clone();
             let status = status.clone();
             let switch = switch.clone();
+            let wifi_tab = wifi_tab.clone();
+            let bt_tab = bt_tab.clone();
 
             glib::spawn_future_local(async move {
                 let wifi = get_wifi(&state);
 
-                // Update WiFi switch state
-                match wifi.is_wifi_enabled().await {
-                    Ok(enabled) => switch.set_active(enabled),
-                    Err(e) => log::error!("Failed to get WiFi state: {e}"),
+                // The switch is shared by Wi-Fi and Bluetooth. Sync it from
+                // whichever top-level tab is currently active.
+                if bt_tab.is_active() {
+                    if let Some(bt) = super::bt_helpers::get_bt(&state) {
+                        match bt.is_powered().await {
+                            Ok(powered) if bt_tab.is_active() => switch.set_active(powered),
+                            Err(e) => log::error!("Failed to get Bluetooth state: {e}"),
+                            _ => {}
+                        }
+                    }
+                } else if wifi_tab.is_active() {
+                    match wifi.is_wifi_enabled().await {
+                        Ok(enabled) if wifi_tab.is_active() => switch.set_active(enabled),
+                        Err(e) => log::error!("Failed to get WiFi state: {e}"),
+                        _ => {}
+                    }
+                }
+
+                // The show request may have been followed by a tab switch
+                // while the D-Bus query was in flight. Do not run Wi-Fi UI
+                // work or overwrite the Bluetooth status in that case.
+                if !wifi_tab.is_active() {
+                    return;
                 }
 
                 // Scan and refresh
@@ -50,7 +73,9 @@ pub(super) fn setup_scan_on_show(
                     WIFI_SCAN_RESULT_WAIT_MS,
                 ))
                 .await;
-                refresh_list(&state, &list_box, &status).await;
+                if wifi_tab.is_active() {
+                    refresh_list(&state, &list_box, &status).await;
+                }
             });
         }
         glib::ControlFlow::Continue
@@ -64,14 +89,16 @@ pub(super) fn setup_initial_state(widgets: &PanelWidgets, state: Rc<RefCell<AppS
     let list_box = widgets.network_list_box.clone();
     let spinner = widgets.spinner.clone();
     let scrolled = widgets.network_scroll.clone();
+    let wifi_tab = widgets.wifi_tab.clone();
 
     glib::spawn_future_local(async move {
         let wifi = get_wifi(&state);
 
         // Set WiFi switch to current state
         match wifi.is_wifi_enabled().await {
-            Ok(enabled) => switch.set_active(enabled),
+            Ok(enabled) if wifi_tab.is_active() => switch.set_active(enabled),
             Err(e) => log::error!("Failed to get WiFi state: {e}"),
+            _ => {}
         }
 
         // Trigger initial scan
@@ -81,7 +108,9 @@ pub(super) fn setup_initial_state(widgets: &PanelWidgets, state: Rc<RefCell<AppS
 
         // Brief delay to let NM populate APs after scan
         glib::timeout_future(std::time::Duration::from_millis(WIFI_SCAN_RESULT_WAIT_MS)).await;
-        refresh_list(&state, &list_box, &status).await;
+        if wifi_tab.is_active() {
+            refresh_list(&state, &list_box, &status).await;
+        }
 
         // Hide spinner, show network list
         spinner.set_spinning(false);

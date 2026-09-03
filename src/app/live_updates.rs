@@ -4,6 +4,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use gtk4::glib;
+use gtk4::prelude::*;
 
 use crate::ui::window::PanelWidgets;
 
@@ -24,6 +25,7 @@ pub(super) fn setup_live_updates(
     let list_box = widgets.network_list_box.clone();
     let status = widgets.status_label.clone();
     let switch = widgets.wifi_switch.clone();
+    let wifi_tab = widgets.wifi_tab.clone();
 
     // Subscribe to Device.StateChanged signal
     {
@@ -31,6 +33,7 @@ pub(super) fn setup_live_updates(
         let list_box = list_box.clone();
         let status = status.clone();
         let switch = switch.clone();
+        let wifi_tab = wifi_tab.clone();
 
         glib::spawn_future_local(async move {
             let wifi = get_wifi(&state);
@@ -94,14 +97,19 @@ pub(super) fn setup_live_updates(
                 }
 
                 // Update WiFi switch state
-                match wifi.is_wifi_enabled().await {
-                    Ok(enabled) => switch.set_active(enabled),
-                    Err(e) => log::error!("Failed to check WiFi state: {e}"),
+                if wifi_tab.is_active() {
+                    match wifi.is_wifi_enabled().await {
+                        Ok(enabled) if wifi_tab.is_active() => switch.set_active(enabled),
+                        Err(e) => log::error!("Failed to check WiFi state: {e}"),
+                        _ => {}
+                    }
                 }
 
                 // Brief debounce then refresh UI
                 glib::timeout_future(std::time::Duration::from_millis(500)).await;
-                refresh_list(&state, &list_box, &status).await;
+                if wifi_tab.is_active() {
+                    refresh_list(&state, &list_box, &status).await;
+                }
             }
         });
     }
@@ -111,6 +119,7 @@ pub(super) fn setup_live_updates(
         let state = Rc::clone(&state);
         let list_box = list_box.clone();
         let status = status.clone();
+        let wifi_tab = wifi_tab.clone();
 
         glib::spawn_future_local(async move {
             let wifi = get_wifi(&state);
@@ -158,11 +167,17 @@ pub(super) fn setup_live_updates(
                 let state_added = Rc::clone(&state);
                 let list_box_added = list_box.clone();
                 let status_added = status.clone();
+                let wifi_tab_added = wifi_tab.clone();
                 glib::spawn_future_local(async move {
                     while (ap_added.next().await).is_some() {
+                        if !wifi_tab_added.is_active() {
+                            continue;
+                        }
                         log::debug!("AccessPoint added, refreshing list");
                         glib::timeout_future(std::time::Duration::from_millis(300)).await;
-                        refresh_list(&state_added, &list_box_added, &status_added).await;
+                        if wifi_tab_added.is_active() {
+                            refresh_list(&state_added, &list_box_added, &status_added).await;
+                        }
                     }
                 });
             }
@@ -171,11 +186,17 @@ pub(super) fn setup_live_updates(
                 let state_removed = Rc::clone(&state);
                 let list_box_removed = list_box.clone();
                 let status_removed = status.clone();
+                let wifi_tab_removed = wifi_tab.clone();
                 glib::spawn_future_local(async move {
                     while (ap_removed.next().await).is_some() {
+                        if !wifi_tab_removed.is_active() {
+                            continue;
+                        }
                         log::debug!("AccessPoint removed, refreshing list");
                         glib::timeout_future(std::time::Duration::from_millis(300)).await;
-                        refresh_list(&state_removed, &list_box_removed, &status_removed).await;
+                        if wifi_tab_removed.is_active() {
+                            refresh_list(&state_removed, &list_box_removed, &status_removed).await;
+                        }
                     }
                 });
             }

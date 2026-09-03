@@ -4,6 +4,7 @@
 //! they are pure helpers or async D-Bus fetch routines.
 
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::rc::Rc;
 
 use gtk4::glib;
@@ -26,6 +27,26 @@ pub(super) fn no_op_remove() -> std::rc::Rc<dyn Fn(String)> {
 /// No-op menu-active callback (used when BT is off / list is empty).
 pub(super) fn no_op_menu_active() -> std::rc::Rc<dyn Fn(bool)> {
     std::rc::Rc::new(|_active| {})
+}
+
+/// Clear the Bluetooth list and invalidate the cached row/device mapping.
+pub(super) fn clear_bt_list(
+    state: &Rc<RefCell<AppState>>,
+    list_box: &gtk4::ListBox,
+    status: &gtk4::Label,
+    status_text: &str,
+) {
+    let row_paths = device_list::populate_device_list(
+        list_box,
+        &[],
+        &HashMap::new(),
+        no_op_remove(),
+        no_op_menu_active(),
+    );
+    let mut st = state.borrow_mut();
+    st.bt_row_paths = row_paths;
+    st.bt_devices.clear();
+    status.set_text(status_text);
 }
 
 /// Build the callback that handles "Unpair device" from the row context menu.
@@ -101,8 +122,49 @@ pub(super) async fn refresh_bt_list(
         None => return,
     };
 
+    // Never render the adapter's known devices as available while the
+    // adapter is powered off. Snapshot the generation so an older refresh
+    // cannot update the UI after a shutdown or tab switch.
+    let generation = state.borrow().bt_task_generation;
+    let powered = match bt.is_powered().await {
+        Ok(powered) => powered,
+        Err(e) => {
+            log::warn!("Failed to get BT power state before refresh: {e}");
+            return;
+        }
+    };
+    if state.borrow().bt_task_generation != generation {
+        return;
+    }
+    if !powered {
+        clear_bt_list(state, list_box, status, "Bluetooth disabled");
+        return;
+    }
+
     match bt.get_devices().await {
         Ok(devices) => {
+            if state.borrow().bt_task_generation != generation {
+                return;
+            }
+
+            // Power may have changed while GetManagedObjects was in flight.
+            match bt.is_powered().await {
+                Ok(true) => {}
+                Ok(false) => {
+                    if state.borrow().bt_task_generation == generation {
+                        clear_bt_list(state, list_box, status, "Bluetooth disabled");
+                    }
+                    return;
+                }
+                Err(e) => {
+                    log::warn!("Failed to confirm BT power state after refresh: {e}");
+                    return;
+                }
+            }
+            if state.borrow().bt_task_generation != generation {
+                return;
+            }
+
             let connected = devices.iter().find(|d| d.connected);
             match connected {
                 Some(d) => status.set_text(&format!("Connected to {}", d.display_name)),
@@ -123,6 +185,9 @@ pub(super) async fn refresh_bt_list(
             state.borrow_mut().bt_devices = devices;
         }
         Err(e) => {
+            if state.borrow().bt_task_generation != generation {
+                return;
+            }
             log::error!("Failed to get BT devices: {e}");
             status.set_text("Failed to load devices");
         }

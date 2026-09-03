@@ -10,7 +10,7 @@ use gtk4::glib;
 use gtk4::prelude::*;
 
 use super::AppState;
-use super::bt_helpers::{get_bt, refresh_bt_list};
+use super::bt_helpers::{clear_bt_list, get_bt, refresh_bt_list};
 
 const BT_MANUAL_SCAN_WINDOW_MS: u64 = 5000;
 pub(super) const BT_AUTO_SCAN_WINDOW_MS: u64 = 10000;
@@ -76,7 +76,14 @@ pub(super) fn start_bt_background_tasks(
         let list_box = list_box.clone();
         let status = status.clone();
         let bt_tab = bt_tab.clone();
+        let generation = state.borrow().bt_task_generation;
         async move {
+            if !bt_tab.is_active()
+                || !state.borrow().bt_auto_scan_active
+                || state.borrow().bt_task_generation != generation
+            {
+                return;
+            }
             run_bt_scan_burst(
                 Rc::clone(&state),
                 list_box.clone(),
@@ -109,11 +116,19 @@ pub(super) fn start_bt_background_tasks(
                 if state.borrow().bt_scan_in_progress {
                     return glib::ControlFlow::Continue;
                 }
+                let generation = state.borrow().bt_task_generation;
                 glib::spawn_future_local({
                     let state = Rc::clone(&state);
                     let list_box = list_box.clone();
                     let status = status.clone();
+                    let bt_tab = bt_tab.clone();
                     async move {
+                        if !bt_tab.is_active()
+                            || !state.borrow().bt_auto_scan_active
+                            || state.borrow().bt_task_generation != generation
+                        {
+                            return;
+                        }
                         refresh_bt_list(&state, &list_box, &status).await;
                     }
                 });
@@ -135,6 +150,11 @@ pub(super) fn stop_bt_background_tasks(state: &Rc<RefCell<AppState>>) {
         id.remove();
     }
     st.bt_auto_scan_active = false;
+    // Timer removal cannot cancel futures already spawned on the main
+    // context. Invalidate them and release the logical scan lock so a later
+    // power-on can start a fresh scan.
+    st.bt_scan_in_progress = false;
+    st.bt_task_generation = st.bt_task_generation.wrapping_add(1);
 }
 
 /// Resume background tasks when the panel becomes visible again.
@@ -235,10 +255,18 @@ pub(super) async fn run_bt_scan_burst(
     }
 
     // RAII guard that clears bt_scan_in_progress even if we return early.
-    struct ScanGuard(Rc<RefCell<AppState>>);
+    // Only the generation that acquired the lock may release it; an old scan
+    // must not clear the lock belonging to a newer scan after power-on.
+    struct ScanGuard {
+        state: Rc<RefCell<AppState>>,
+        generation: u64,
+    }
     impl Drop for ScanGuard {
         fn drop(&mut self) {
-            self.0.borrow_mut().bt_scan_in_progress = false;
+            let mut st = self.state.borrow_mut();
+            if st.bt_task_generation == self.generation {
+                st.bt_scan_in_progress = false;
+            }
         }
     }
 
@@ -249,7 +277,7 @@ pub(super) async fn run_bt_scan_burst(
         return;
     }
 
-    {
+    let generation = {
         let mut st = state.borrow_mut();
         if st.bt_scan_in_progress {
             if let Some(ui) = manual_ui {
@@ -259,8 +287,16 @@ pub(super) async fn run_bt_scan_burst(
             return;
         }
         st.bt_scan_in_progress = true;
-    }
-    let _guard = ScanGuard(Rc::clone(&state));
+        st.bt_task_generation
+    };
+    let _guard = ScanGuard {
+        state: Rc::clone(&state),
+        generation,
+    };
+
+    let is_current = |state: &Rc<RefCell<AppState>>| {
+        state.borrow().bt_task_generation == generation
+    };
 
     let bt = match get_bt(&state) {
         Some(bt) => bt,
@@ -280,8 +316,16 @@ pub(super) async fn run_bt_scan_burst(
         }
     };
 
+    if !is_current(&state) {
+        if let Some(ui) = manual_ui {
+            finish_manual_ui(ui);
+        }
+        return;
+    }
+
     if !powered {
-        status.set_text("Bluetooth disabled");
+        stop_bt_background_tasks(&state);
+        clear_bt_list(&state, &list_box, &status, "Bluetooth disabled");
         if let Some(ui) = manual_ui {
             finish_manual_ui(ui);
         }
@@ -295,10 +339,20 @@ pub(super) async fn run_bt_scan_burst(
     }
 
     let discovering = bt.is_discovering().await.unwrap_or(false);
+    if !is_current(&state) {
+        if let Some(ui) = manual_ui {
+            finish_manual_ui(ui);
+        }
+        return;
+    }
+
     let mut started_discovery = false;
     if !discovering {
         match bt.start_discovery().await {
             Ok(()) => {
+                // The request may finish after shutdown. We still own the
+                // discovery request and must clean it up unless a newer scan
+                // has taken over.
                 started_discovery = true;
             }
             Err(e) => {
@@ -309,11 +363,18 @@ pub(super) async fn run_bt_scan_burst(
 
     glib::timeout_future(std::time::Duration::from_millis(scan_window_ms)).await;
 
-    if bt_tab.is_active() {
+    let current = is_current(&state);
+    if current && bt_tab.is_active() {
         refresh_bt_list(&state, &list_box, &status).await;
     }
 
-    if started_discovery {
+    // If shutdown happened while StartDiscovery was in flight, clean up the
+    // discovery it started. Do not stop a newer scan's discovery session.
+    let can_stop_discovery = started_discovery && {
+        let st = state.borrow();
+        st.bt_task_generation == generation || !st.bt_scan_in_progress
+    };
+    if can_stop_discovery {
         if let Err(e) = bt.stop_discovery().await {
             log::warn!("BT discovery stop failed: {e}");
         }

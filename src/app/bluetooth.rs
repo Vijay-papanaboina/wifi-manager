@@ -11,11 +11,12 @@ use gtk4::prelude::*;
 
 use crate::dbus::bluetooth_device::BluetoothDevice;
 use crate::dbus::bluetooth_manager::BluetoothManager;
-use crate::ui::device_list;
 use crate::ui::window::PanelWidgets;
 
 use super::AppState;
-use super::bt_helpers::{get_bt, no_op_menu_active, no_op_remove, refresh_bt_list};
+use super::bt_helpers::{
+    clear_bt_list, get_bt, refresh_bt_list,
+};
 use super::bt_scanning::{
     run_bt_scan_burst, start_bt_background_tasks, ManualBtScanUi,
 };
@@ -106,23 +107,17 @@ pub(super) fn setup_bluetooth(widgets: &PanelWidgets, state: Rc<RefCell<AppState
                             true
                         }
                     };
-                    switch.set_active(powered);
+                    if bt_tab_for_bg.is_active() {
+                        switch.set_active(powered);
+                    }
 
                     if !powered {
                         status.set_text("Bluetooth disabled");
                         bt_spinner.set_visible(false);
                         bt_spinner.set_spinning(false);
                         bt_scroll.set_visible(true);
-                        let empty = std::collections::HashMap::new();
-                        let row_paths = device_list::populate_device_list(
-                            &bt_list_box,
-                            &[],
-                            &empty,
-                            no_op_remove(),
-                            no_op_menu_active(),
-                        );
-                        state.borrow_mut().bt_row_paths = row_paths;
                         stop_bt_background_tasks(&state);
+                        clear_bt_list(&state, &bt_list_box, &status, "Bluetooth disabled");
                         return;
                     }
 
@@ -146,7 +141,7 @@ pub(super) fn setup_bluetooth(widgets: &PanelWidgets, state: Rc<RefCell<AppState
             let bt_tab_c = bt_tab.clone();
             let scan_btn = scan_btn.clone();
 
-            switch.connect_state_set(move |_switch, enabled| {
+            switch.connect_state_set(move |switch, enabled| {
                 if !bt_tab_c.is_active() {
                     return glib::Propagation::Proceed;
                 }
@@ -158,22 +153,39 @@ pub(super) fn setup_bluetooth(widgets: &PanelWidgets, state: Rc<RefCell<AppState
                 let bt_spinner = bt_spinner.clone();
                 let bt_scroll = bt_scroll.clone();
                 let status = status.clone();
+                let switch = switch.clone();
+
+                switch.set_sensitive(false);
+                state.borrow_mut().bt_power_transition_in_progress = true;
 
                 glib::spawn_future_local(async move {
                     let bt = match get_bt(&state) {
                         Some(bt) => bt,
-                        None => return,
+                        None => {
+                            if bt_tab_c.is_active() {
+                                switch.set_active(!enabled);
+                                status.set_text("Bluetooth unavailable");
+                            }
+                            state.borrow_mut().bt_power_transition_in_progress = false;
+                            switch.set_sensitive(true);
+                            return;
+                        }
                     };
 
                     match bt.set_powered(enabled).await {
                         Ok(_) => {
                             if enabled {
-                                status.set_text("Bluetooth enabled");
-                                scan_btn.set_sensitive(false);
+                                if bt_tab_c.is_active() {
+                                    status.set_text("Bluetooth enabled");
+                                    scan_btn.set_sensitive(false);
+                                }
+                                let task_list_box = bt_list_box.clone();
+                                let task_status = status.clone();
+                                let task_tab = bt_tab_c.clone();
                                 run_bt_scan_burst(
                                     Rc::clone(&state),
-                                    bt_list_box,
-                                    status,
+                                    bt_list_box.clone(),
+                                    status.clone(),
                                     bt_tab_c.clone(),
                                     Some(ManualBtScanUi {
                                         scan_btn: scan_btn.clone(),
@@ -183,26 +195,74 @@ pub(super) fn setup_bluetooth(widgets: &PanelWidgets, state: Rc<RefCell<AppState
                                     BT_MANUAL_SCAN_WINDOW_MS,
                                 )
                                 .await;
+
+                                // Powering BT back on must restore the
+                                // background scan/live-refresh loop too.
+                                let actual = bt.is_powered().await.unwrap_or(false);
+                                if task_tab.is_active() && actual {
+                                    start_bt_background_tasks(
+                                        Rc::clone(&state),
+                                        task_tab,
+                                        task_list_box,
+                                        task_status,
+                                    );
+                                } else if !actual {
+                                    stop_bt_background_tasks(&state);
+                                    if bt_tab_c.is_active() {
+                                        clear_bt_list(
+                                            &state,
+                                            &bt_list_box,
+                                            &status,
+                                            "Bluetooth disabled",
+                                        );
+                                    }
+                                }
                             } else {
-                                status.set_text("Bluetooth disabled");
-                                let empty = std::collections::HashMap::new();
-                                let row_paths = device_list::populate_device_list(
-                                    &bt_list_box,
-                                    &[],
-                                    &empty,
-                                    no_op_remove(),
-                                    no_op_menu_active(),
-                                );
-                                state.borrow_mut().bt_row_paths = row_paths;
                                 stop_bt_background_tasks(&state);
+                                if bt_tab_c.is_active() {
+                                    clear_bt_list(
+                                        &state,
+                                        &bt_list_box,
+                                        &status,
+                                        "Bluetooth disabled",
+                                    );
+                                }
                                 let _ = bt.stop_discovery().await;
+                            }
+                            // A successful setter can still race with an
+                            // external power change. Reflect the property
+                            // that is actually present after the operation.
+                            let actual = bt.is_powered().await.unwrap_or(enabled);
+                            if bt_tab_c.is_active() {
+                                switch.set_active(actual);
                             }
                         }
                         Err(e) => {
                             log::error!("BT power toggle failed: {e}");
-                            status.set_text("Toggle failed");
+                            // Restore the last requested state when the
+                            // backend rejects the operation. A direct
+                            // property update does not emit state-set.
+                            let actual = bt.is_powered().await.unwrap_or(!enabled);
+                            if !actual {
+                                stop_bt_background_tasks(&state);
+                                if bt_tab_c.is_active() {
+                                    clear_bt_list(
+                                        &state,
+                                        &bt_list_box,
+                                        &status,
+                                        "Bluetooth disabled",
+                                    );
+                                }
+                                let _ = bt.stop_discovery().await;
+                            }
+                            if bt_tab_c.is_active() {
+                                switch.set_active(actual);
+                                status.set_text("Toggle failed");
+                            }
                         }
                     }
+                    state.borrow_mut().bt_power_transition_in_progress = false;
+                    switch.set_sensitive(true);
                 });
 
                 glib::Propagation::Proceed
