@@ -3,15 +3,15 @@
 use gtk4::prelude::*;
 use gtk4::{Box as GtkBox, Label, ListBoxRow, Orientation};
 
-use crate::dbus::access_point::{Band, Network, SecurityType};
+use crate::domain::network::{Band, Network, SecurityType};
 
 /// Signal strength thresholds for icon selection.
 fn signal_icon(strength: u8, icons: &[String; 4]) -> (&str, &'static str) {
     let icon = match strength {
-        75..=100 => &icons[3],  // strong
-        50..=74 => &icons[2],   // good
-        25..=49 => &icons[1],   // fair
-        _ => &icons[0],         // weak
+        75..=100 => &icons[3], // strong
+        50..=74 => &icons[2],  // good
+        25..=49 => &icons[1],  // fair
+        _ => &icons[0],        // weak
     };
     let class = match strength {
         75..=100 => "signal-strong",
@@ -25,7 +25,7 @@ fn signal_icon(strength: u8, icons: &[String; 4]) -> (&str, &'static str) {
 /// Build a `ListBoxRow` for a single network.
 ///
 /// The row displays: signal bars | [SSID / Subtitle] | menu.
-pub fn build_network_row(
+pub(crate) fn build_network_row(
     network: &Network,
     config: &crate::config::Config,
     pending_label: Option<&str>,
@@ -70,7 +70,7 @@ pub fn build_network_row(
 
     // Subtitle line (Band · Connectivity · Pending)
     let mut subtitle_parts = Vec::new();
-    
+
     if network.band == Band::FiveGhz {
         subtitle_parts.push("5G".to_string());
     }
@@ -118,7 +118,7 @@ pub fn build_network_row(
 
     // Menu button (only for saved networks)
     if network.is_saved || network.is_connected {
-        use gtk4::{gio, MenuButton, PopoverMenu};
+        use gtk4::{MenuButton, PopoverMenu, gio};
 
         let menu = gio::Menu::new();
         menu.append(Some("Forget"), Some("row.forget"));

@@ -4,7 +4,9 @@
 
 use gtk4::prelude::*;
 
-use crate::dbus::vpn_manager::{VpnActive, VpnProfile};
+use crate::domain::vpn::{VpnActive, VpnProfile};
+use crate::error::AppResult;
+use crate::process;
 
 use super::AppState;
 
@@ -18,7 +20,7 @@ pub(super) fn find_blocking_active_path_for_connect(
         if net.connection_path == target_conn_path {
             continue;
         }
-        if net.state == 1 || net.state == 2 {
+        if net.is_connecting() || net.is_connected() {
             return Some(net.active_path.clone());
         }
     }
@@ -37,11 +39,12 @@ pub(super) fn update_vpn_header_status(
 
     for profile in profiles {
         if let Some(active) = active_by_conn.get(&profile.connection_path) {
-            match active.state {
-                2 => connected_name = Some(&profile.name),
-                1 => connecting_name = Some(&profile.name),
-                3 => disconnecting_name = Some(&profile.name),
-                _ => {}
+            if active.is_connected() {
+                connected_name = Some(&profile.name);
+            } else if active.is_connecting() {
+                connecting_name = Some(&profile.name);
+            } else if active.is_disconnecting() {
+                disconnecting_name = Some(&profile.name);
             }
         }
     }
@@ -85,22 +88,18 @@ pub(super) fn launch_nm_connection_editor(
     uuid: Option<String>,
     panel_state: Option<&crate::daemon::PanelState>,
     window: Option<&gtk4::ApplicationWindow>,
-) -> Result<(), String> {
-    let mut cmd = std::process::Command::new("nm-connection-editor");
-    if let Some(uuid) = uuid {
-        if !uuid.is_empty() {
-            cmd.arg("--edit").arg(uuid);
+) -> AppResult<()> {
+    let command_args = uuid
+        .filter(|uuid| !uuid.is_empty())
+        .map(|uuid| vec!["--edit".to_string(), uuid])
+        .unwrap_or_default();
+    process::spawn("nm-connection-editor", command_args.iter()).map(|_| {
+        if let Some(state) = panel_state {
+            state.hide();
+        } else if let Some(win) = window {
+            win.set_visible(false);
         }
-    }
-    cmd.spawn()
-        .map(|_| {
-            if let Some(state) = panel_state {
-                state.hide();
-            } else if let Some(win) = window {
-                win.set_visible(false);
-            }
-        })
-        .map_err(|e| format!("launch error: {e}"))
+    })
 }
 
 /// Show a GTK confirmation dialog before deleting a VPN profile.

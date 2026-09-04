@@ -5,12 +5,14 @@
 use std::collections::HashMap;
 use zbus::zvariant::OwnedObjectPath;
 
-use super::access_point::{self, Band, Network, SecurityType};
 use super::proxies::*;
+use crate::domain::network::{
+    Band, Network, SecurityType, candidate_is_preferred, security_from_flags, sort_networks,
+};
 
 /// The WiFi manager that wraps all NM D-Bus interactions.
 #[derive(Clone)]
-pub struct WifiManager {
+pub(crate) struct WifiManager {
     connection: zbus::Connection,
     wifi_device_path: OwnedObjectPath,
 }
@@ -20,7 +22,7 @@ const NM_DEVICE_TYPE_WIFI: u32 = 2;
 
 impl WifiManager {
     /// Connect to D-Bus and find the first WiFi device.
-    pub async fn new() -> zbus::Result<Self> {
+    pub(crate) async fn new() -> zbus::Result<Self> {
         let connection = zbus::Connection::system().await?;
 
         // Get the NM proxy
@@ -31,10 +33,8 @@ impl WifiManager {
         let mut wifi_device_path: Option<OwnedObjectPath> = None;
 
         for device_path in devices {
-            let device = DeviceProxy::builder(&connection)
-                .path(device_path.clone())?
-                .build()
-                .await?;
+            let device =
+                DeviceProxy::builder(&connection).path(device_path.clone())?.build().await?;
 
             if device.device_type().await? == NM_DEVICE_TYPE_WIFI {
                 wifi_device_path = Some(device_path);
@@ -47,14 +47,11 @@ impl WifiManager {
 
         log::info!("Found WiFi device: {}", wifi_device_path);
 
-        Ok(Self {
-            connection,
-            wifi_device_path,
-        })
+        Ok(Self { connection, wifi_device_path })
     }
 
     /// Trigger a WiFi scan.
-    pub async fn request_scan(&self) -> zbus::Result<()> {
+    pub(crate) async fn request_scan(&self) -> zbus::Result<()> {
         let wireless = WirelessProxy::builder(&self.connection)
             .path(self.wifi_device_path.clone())?
             .build()
@@ -66,7 +63,7 @@ impl WifiManager {
     }
 
     /// Get a list of available networks (deduplicated by SSID).
-    pub async fn get_networks(&self) -> zbus::Result<Vec<Network>> {
+    pub(crate) async fn get_networks(&self) -> zbus::Result<Vec<Network>> {
         let wireless = WirelessProxy::builder(&self.connection)
             .path(self.wifi_device_path.clone())?
             .build()
@@ -82,10 +79,8 @@ impl WifiManager {
         let saved_ssids = self.get_saved_wifi_ssids().await.unwrap_or_default();
 
         for ap_path in ap_paths {
-            let ap = AccessPointProxy::builder(&self.connection)
-                .path(ap_path.clone())?
-                .build()
-                .await?;
+            let ap =
+                AccessPointProxy::builder(&self.connection).path(ap_path.clone())?.build().await?;
 
             // Read AP properties
             let ssid_bytes = ap.ssid().await?;
@@ -102,53 +97,39 @@ impl WifiManager {
             let wpa_flags = ap.wpa_flags().await?;
             let rsn_flags = ap.rsn_flags().await?;
 
-            let security = access_point::security_from_flags(flags, wpa_flags, rsn_flags);
+            let security = security_from_flags(flags, wpa_flags, rsn_flags);
             let band = Band::from_frequency(frequency);
             let ap_path_str = ap_path.to_string();
 
-            let is_connected = active_ap
-                .as_ref()
-                .map(|active| *active == ap_path_str)
-                .unwrap_or(false);
+            let is_connected =
+                active_ap.as_ref().map(|active| *active == ap_path_str).unwrap_or(false);
 
             let is_saved = saved_ssids.contains_key(&ssid);
             let connection_path = saved_ssids.get(&ssid).cloned();
 
-            // Deduplication: keep the AP with the strongest signal per SSID
+            let candidate = Network {
+                ssid: ssid.clone(),
+                strength,
+                security,
+                is_connected,
+                is_saved,
+                band,
+                ap_path: ap_path_str,
+                connection_path,
+            };
+
+            // Deduplication: keep the strongest AP, with a stable path tie-break.
             match networks_by_ssid.get(&ssid) {
-                Some(existing) if existing.strength >= strength => {
-                    // Existing entry is stronger, skip
-                    continue;
-                }
+                Some(existing) if !candidate_is_preferred(existing, &candidate) => continue,
                 _ => {
-                    networks_by_ssid.insert(
-                        ssid.clone(),
-                        Network {
-                            ssid,
-                            strength,
-                            security,
-                            is_connected,
-                            is_saved,
-                            band,
-                            ap_path: ap_path_str,
-                            connection_path,
-                        },
-                    );
+                    networks_by_ssid.insert(ssid, candidate);
                 }
             }
         }
 
         // Collect and sort: connected first → saved → by strength descending
         let mut networks: Vec<Network> = networks_by_ssid.into_values().collect();
-        networks.sort_by(|a, b| {
-            // Connected first
-            b.is_connected
-                .cmp(&a.is_connected)
-                // Then saved
-                .then(b.is_saved.cmp(&a.is_saved))
-                // Then by signal strength
-                .then(b.strength.cmp(&a.strength))
-        });
+        sort_networks(&mut networks);
 
         Ok(networks)
     }
@@ -160,7 +141,7 @@ impl WifiManager {
     /// - If it's secured (WPA2/WPA3), build settings with the provided password.
     ///
     /// Returns the active connection path on success.
-    pub async fn connect_to_network(
+    pub(crate) async fn connect_to_network(
         &self,
         network: &Network,
         password: Option<&str>,
@@ -177,9 +158,7 @@ impl WifiManager {
                 .map_err(|e| zbus::Error::Failure(format!("Invalid connection path: {e}")))?;
 
             log::info!("Activating saved connection for '{}'", network.ssid);
-            let active = nm
-                .activate_connection(&conn_path, &device_path, &ap_path)
-                .await?;
+            let active = nm.activate_connection(&conn_path, &device_path, &ap_path).await?;
             return Ok(active.to_string());
         }
 
@@ -210,14 +189,12 @@ impl WifiManager {
             }
         };
 
-        let (_, active) = nm
-            .add_and_activate_connection(settings, &device_path, &ap_path)
-            .await?;
+        let (_, active) = nm.add_and_activate_connection(settings, &device_path, &ap_path).await?;
         Ok(active.to_string())
     }
 
     /// Disconnect from the current WiFi network.
-    pub async fn disconnect(&self) -> zbus::Result<()> {
+    pub(crate) async fn disconnect(&self) -> zbus::Result<()> {
         let device = DeviceProxy::builder(&self.connection)
             .path(self.wifi_device_path.clone())?
             .build()
@@ -238,7 +215,7 @@ impl WifiManager {
     }
 
     /// Enable or disable WiFi radio.
-    pub async fn set_wifi_enabled(&self, enabled: bool) -> zbus::Result<()> {
+    pub(crate) async fn set_wifi_enabled(&self, enabled: bool) -> zbus::Result<()> {
         let nm = NetworkManagerProxy::new(&self.connection).await?;
         nm.set_wireless_enabled(enabled).await?;
         log::info!("WiFi {}", if enabled { "enabled" } else { "disabled" });
@@ -246,12 +223,12 @@ impl WifiManager {
     }
 
     /// Check if WiFi radio is currently enabled.
-    pub async fn is_wifi_enabled(&self) -> zbus::Result<bool> {
+    pub(crate) async fn is_wifi_enabled(&self) -> zbus::Result<bool> {
         let nm = NetworkManagerProxy::new(&self.connection).await?;
         nm.wireless_enabled().await
     }
     /// Forget (delete) a saved network by its SSID.
-    pub async fn forget_network(&self, ssid: &str) -> zbus::Result<()> {
+    pub(crate) async fn forget_network(&self, ssid: &str) -> zbus::Result<()> {
         let saved = self.get_saved_wifi_ssids().await?;
         if let Some(conn_path) = saved.get(ssid) {
             let conn = SettingsConnectionProxy::builder(&self.connection)
@@ -263,9 +240,7 @@ impl WifiManager {
             Ok(())
         } else {
             log::warn!("Network not found in saved connections: {ssid}");
-            Err(zbus::Error::Failure(format!(
-                "No saved connection for '{ssid}'"
-            )))
+            Err(zbus::Error::Failure(format!("No saved connection for '{ssid}'")))
         }
     }
 
@@ -310,9 +285,8 @@ impl WifiManager {
             if let Ok(settings) = conn.get_settings().await {
                 // Check if this is a WiFi connection
                 if let Some(conn_settings) = settings.get("connection") {
-                    let conn_type = conn_settings
-                        .get("type")
-                        .and_then(|v| <String>::try_from(v.clone()).ok());
+                    let conn_type =
+                        conn_settings.get("type").and_then(|v| <String>::try_from(v.clone()).ok());
 
                     if conn_type.as_deref() != Some("802-11-wireless") {
                         continue;
@@ -322,12 +296,22 @@ impl WifiManager {
                 // Get the SSID from 802-11-wireless settings
                 if let Some(wifi_settings) = settings.get("802-11-wireless")
                     && let Some(ssid_val) = wifi_settings.get("ssid")
-                        && let Ok(ssid_bytes) = <Vec<u8>>::try_from(ssid_val.clone()) {
-                            let ssid = String::from_utf8_lossy(&ssid_bytes).to_string();
-                            if !ssid.is_empty() {
-                                ssid_map.insert(ssid, conn_path.to_string());
+                    && let Ok(ssid_bytes) = <Vec<u8>>::try_from(ssid_val.clone())
+                {
+                    let ssid = String::from_utf8_lossy(&ssid_bytes).to_string();
+                    if !ssid.is_empty() {
+                        let path = conn_path.to_string();
+                        match ssid_map.get(&ssid) {
+                            Some(existing) if existing <= &path => {}
+                            _ => {
+                                // Multiple profiles can share an SSID. Keep a
+                                // deterministic path until the UI can expose
+                                // profile selection explicitly.
+                                ssid_map.insert(ssid, path);
                             }
                         }
+                    }
+                }
             }
         }
 
@@ -335,12 +319,12 @@ impl WifiManager {
     }
 
     /// Get a reference to the D-Bus connection (for use in other modules).
-    pub fn connection(&self) -> &zbus::Connection {
+    pub(crate) fn connection(&self) -> &zbus::Connection {
         &self.connection
     }
 
     /// Get the WiFi device path.
-    pub fn wifi_device_path(&self) -> &str {
+    pub(crate) fn wifi_device_path(&self) -> &str {
         self.wifi_device_path.as_str()
     }
 }

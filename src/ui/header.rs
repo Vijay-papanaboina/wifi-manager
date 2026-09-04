@@ -6,7 +6,7 @@ use gtk4::prelude::*;
 use gtk4::{Box as GtkBox, Button, Label, Orientation, Switch, ToggleButton};
 
 /// All widgets produced by the header builder.
-pub struct HeaderWidgets {
+pub(crate) struct HeaderWidgets {
     pub container: GtkBox,
     pub toggle_switch: Switch,
     pub title_label: Label,
@@ -19,7 +19,7 @@ pub struct HeaderWidgets {
 /// Build the header containing:
 /// - Top row: toggle switch (left) + title/status (center) + scan button (right)
 /// - Tab bar: Wi-Fi / Bluetooth toggle buttons
-pub fn build_header() -> HeaderWidgets {
+pub(crate) fn build_header() -> HeaderWidgets {
     let container = GtkBox::new(Orientation::Vertical, 0);
     container.add_css_class("header");
 

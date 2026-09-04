@@ -69,8 +69,7 @@ pub(super) fn build_remove_callback(
             status.set_text("Unpairing device...");
             {
                 let mut st = state.borrow_mut();
-                st.bt_pending
-                    .insert(device_path.clone(), "Unpairing".to_string());
+                st.bt_pending.insert(device_path.clone(), "Unpairing".to_string());
             }
             refresh_bt_list(&state, &list_box, &status).await;
             match bt.remove_device(&device_path).await {
@@ -98,7 +97,9 @@ pub(super) fn build_remove_callback(
 /// Build the callback that tracks whether a row context menu is open.
 ///
 /// While open, list refreshes are suppressed to avoid the popover closing.
-pub(super) fn build_menu_active_callback(state: &Rc<RefCell<AppState>>) -> std::rc::Rc<dyn Fn(bool)> {
+pub(super) fn build_menu_active_callback(
+    state: &Rc<RefCell<AppState>>,
+) -> std::rc::Rc<dyn Fn(bool)> {
     let state = Rc::clone(state);
     std::rc::Rc::new(move |active| {
         state.borrow_mut().bt_menu_open = active;

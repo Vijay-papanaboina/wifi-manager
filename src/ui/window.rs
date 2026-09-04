@@ -10,21 +10,27 @@ use gtk4::{
     StackTransitionType, ToggleButton, gdk,
 };
 use gtk4_layer_shell::{Edge, KeyboardMode, Layer, LayerShell};
+use std::cell::RefCell;
 
 use super::{controls_panel, device_list, header, network_list, password_dialog, vpn_list};
 use crate::config::{Config, Position};
 
+thread_local! {
+    /// The installed user provider, replaced on every reload.
+    static USER_CSS_PROVIDER: RefCell<Option<CssProvider>> = const { RefCell::new(None) };
+}
+
 /// Minimum pixel height for list boxes (shows ~3 items)
-pub const MIN_LIST_HEIGHT: i32 = 220;
+pub(crate) const MIN_LIST_HEIGHT: i32 = 220;
 /// Maximum pixel height for list boxes before scrolling (shows ~4–5 items)
-pub const MAX_LIST_HEIGHT: i32 = 360;
+pub(crate) const MAX_LIST_HEIGHT: i32 = 360;
 
 /// Default width of the main panel window
-pub const WINDOW_WIDTH: i32 = 340;
+pub(crate) const WINDOW_WIDTH: i32 = 340;
 
 /// All UI handles needed by the app controller.
 #[allow(dead_code)]
-pub struct PanelWidgets {
+pub(crate) struct PanelWidgets {
     pub window: ApplicationWindow,
     pub wifi_switch: gtk4::Switch,
     pub title_label: gtk4::Label,
@@ -61,7 +67,7 @@ pub struct PanelWidgets {
 }
 
 /// Build the main floating panel window with all UI components.
-pub fn build_window(app: &Application) -> PanelWidgets {
+pub(crate) fn build_window(app: &Application) -> PanelWidgets {
     let config = Config::load();
 
     let window = ApplicationWindow::builder()
@@ -241,11 +247,13 @@ pub fn build_window(app: &Application) -> PanelWidgets {
     // Smoothly shrink window when controls are hidden
     let window_clone = window.clone();
     controls.toggle_button().connect_toggled(move |btn: &gtk4::ToggleButton| {
-        if !btn.is_active() { // Slider section is collapsing
+        if !btn.is_active() {
+            // Slider section is collapsing
             let win_ref = window_clone.clone();
             let btn_ref = btn.clone();
             // Wait slightly longer than the slide transition before recalibrating
-            let delay = std::time::Duration::from_millis(controls_panel::SLIDE_TRANSITION_MS as u64 + 10);
+            let delay =
+                std::time::Duration::from_millis(controls_panel::SLIDE_TRANSITION_MS as u64 + 10);
             gtk4::glib::timeout_add_local(delay, move || {
                 // Only resize if still collapsed
                 if !btn_ref.is_active() {
@@ -335,7 +343,10 @@ pub fn build_window(app: &Application) -> PanelWidgets {
 
 /// Load the default CSS theme and optional user overrides.
 fn load_css() {
-    let display = gdk::Display::default().expect("Could not get default display");
+    let Some(display) = gdk::Display::default() else {
+        log::error!("Could not get default display; CSS theme was not loaded");
+        return;
+    };
 
     // Load bundled default theme
     let default_css = include_str!("../../resources/style.css");
@@ -348,50 +359,50 @@ fn load_css() {
     );
     log::info!("Default CSS theme loaded");
 
-    // Load optional user theme override
-    if let Some(config_dir) = dirs_config_path() {
-        let user_css_path = config_dir.join("style.css");
-        if user_css_path.exists() {
-            let user_provider = CssProvider::new();
-            user_provider.load_from_path(user_css_path.to_str().unwrap_or_default());
-            gtk4::style_context_add_provider_for_display(
-                &display,
-                &user_provider,
-                gtk4::STYLE_PROVIDER_PRIORITY_USER,
-            );
-            log::info!("User CSS theme loaded from {:?}", user_css_path);
-        }
-    }
+    reload_user_css(&display);
 }
 
 /// Reload user CSS (for --reload flag).
-pub fn reload_css() {
-    let display = gdk::Display::default().expect("Could not get default display");
+pub(crate) fn reload_css() {
+    let Some(display) = gdk::Display::default() else {
+        log::error!("Could not get default display; CSS reload skipped");
+        return;
+    };
 
-    // Reload optional user theme override
-    if let Some(config_dir) = dirs_config_path() {
-        let user_css_path = config_dir.join("style.css");
-        if user_css_path.exists() {
-            let user_provider = CssProvider::new();
-            user_provider.load_from_path(user_css_path.to_str().unwrap_or_default());
-            gtk4::style_context_add_provider_for_display(
-                &display,
-                &user_provider,
-                gtk4::STYLE_PROVIDER_PRIORITY_USER,
-            );
-            log::info!("User CSS reloaded from {:?}", user_css_path);
+    reload_user_css(&display);
+}
+
+fn reload_user_css(display: &gdk::Display) {
+    USER_CSS_PROVIDER.with(|provider_cell| {
+        let previous = provider_cell.borrow_mut().take();
+        if let Some(previous) = previous {
+            gtk4::style_context_remove_provider_for_display(display, &previous);
         }
-    }
+
+        let Some(config_dir) = dirs_config_path() else {
+            return;
+        };
+        let user_css_path = config_dir.join("style.css");
+        if !user_css_path.exists() {
+            return;
+        }
+
+        let user_provider = CssProvider::new();
+        user_provider.load_from_path(user_css_path.to_str().unwrap_or_default());
+        gtk4::style_context_add_provider_for_display(
+            display,
+            &user_provider,
+            gtk4::STYLE_PROVIDER_PRIORITY_USER,
+        );
+        *provider_cell.borrow_mut() = Some(user_provider);
+        log::info!("User CSS theme loaded from {:?}", user_css_path);
+    });
 }
 
 /// Get the config directory: ~/.config/wifi-manager/
 fn dirs_config_path() -> Option<std::path::PathBuf> {
     let home = std::env::var("HOME").ok()?;
-    Some(
-        std::path::PathBuf::from(home)
-            .join(".config")
-            .join("wifi-manager"),
-    )
+    Some(std::path::PathBuf::from(home).join(".config").join("wifi-manager"))
 }
 
 /// Apply window position and margins from config to a layer-shell window.
@@ -420,7 +431,24 @@ fn apply_position(window: &ApplicationWindow, config: &Config) {
     window.set_margin(Edge::Bottom, config.margin_bottom);
     window.set_margin(Edge::Left, config.margin_left);
 
-    log::info!("Window position: {:?}, margins: t={} r={} b={} l={}",
-        config.position, config.margin_top, config.margin_right,
-        config.margin_bottom, config.margin_left);
+    log::info!(
+        "Window position: {:?}, margins: t={} r={} b={} l={}",
+        config.position,
+        config.margin_top,
+        config.margin_right,
+        config.margin_bottom,
+        config.margin_left
+    );
+}
+
+/// Reapply configuration values that are safe to change while the panel is
+/// running. Static widget structure remains intact; only placement and
+/// configurable glyphs are updated.
+pub(crate) fn apply_runtime_config(
+    window: &ApplicationWindow,
+    controls: &controls_panel::ControlsPanel,
+    config: &Config,
+) {
+    apply_position(window, config);
+    controls.apply_config(config);
 }

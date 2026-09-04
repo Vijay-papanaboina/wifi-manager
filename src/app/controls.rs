@@ -1,12 +1,12 @@
+use gtk4::prelude::*;
+use gtk4::{Scale, glib};
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
-use gtk4::prelude::*;
-use gtk4::{glib, Scale};
 
-use crate::controls::brightness::BrightnessManager;
-use crate::controls::volume::VolumeManager;
-use crate::controls::night_mode::NightModeManager;
 use crate::config::Config;
+use crate::controls::brightness::BrightnessManager;
+use crate::controls::night_mode::NightModeManager;
+use crate::controls::volume::VolumeManager;
 use crate::state::AppStateStore;
 use crate::ui::{controls_panel, window::PanelWidgets};
 
@@ -43,14 +43,25 @@ fn slider_to_kelvin(val: f64, max: f64) -> f64 {
 
 fn kelvin_to_slider(kelvin: f64, max: f64) -> f64 {
     let kelvin = kelvin.clamp(MIN_TEMP_KELVIN, NEUTRAL_TEMP_KELVIN);
+    if kelvin == NEUTRAL_TEMP_KELVIN {
+        return 0.0;
+    }
+    if kelvin == MIN_TEMP_KELVIN {
+        return max;
+    }
     let range = NEUTRAL_TEMP_KELVIN - MIN_TEMP_KELVIN;
     let t_smooth = (NEUTRAL_TEMP_KELVIN - kelvin) / range;
     let t = inverse_smoothstep(t_smooth);
     t * max
 }
 
-pub fn setup_controls(widgets: &PanelWidgets) {
-    let config = Config::load();
+pub(crate) fn setup_controls(widgets: &PanelWidgets) {
+    widgets.controls.bind_power_actions(controls_panel::PowerActions {
+        poweroff: crate::controls::power::poweroff,
+        reboot: crate::controls::power::reboot,
+        suspend: crate::controls::power::suspend,
+        logout: crate::controls::power::logout,
+    });
     let brightness_scale = widgets.controls.brightness_scale().clone();
     let brightness_btn = widgets.controls.brightness_btn().clone();
     let volume_scale = widgets.controls.volume_scale().clone();
@@ -58,16 +69,12 @@ pub fn setup_controls(widgets: &PanelWidgets) {
     let volume_btn = widgets.controls.volume_btn().clone();
     let night_mode_scale = widgets.controls.night_mode_scale().clone();
     let night_mode_btn = widgets.controls.night_mode_btn().clone();
-    let night_mode_on_icon = config.night_mode_on_icon.clone();
-    let night_mode_off_icon = config.night_mode_off_icon.clone();
 
     // Load persisted dynamic state
     let state_store = Rc::new(RefCell::new(AppStateStore::load()));
 
     // Formatter for brightness and volume
-    let percent_formatter = |_: &Scale, val: f64| -> String {
-        format!("{}%", val.round() as i32)
-    };
+    let percent_formatter = |_: &Scale, val: f64| -> String { format!("{}%", val.round() as i32) };
 
     // ── Brightness ───────────────────────────────────────────────
     let b_scale = brightness_scale.clone();
@@ -98,7 +105,8 @@ pub fn setup_controls(widgets: &PanelWidgets) {
                 // Listen for UI slider changes -> tell backend (debounced)
                 let mgr_clone = Rc::clone(&manager);
                 let is_updating_ui_slider = Rc::clone(&is_updating_ui);
-                let pending_source: Rc<RefCell<Option<glib::SourceId>>> = Rc::new(RefCell::new(None));
+                let pending_source: Rc<RefCell<Option<glib::SourceId>>> =
+                    Rc::new(RefCell::new(None));
 
                 b_scale.connect_value_changed(move |scale: &gtk4::Scale| {
                     if is_updating_ui_slider.get() {
@@ -113,9 +121,8 @@ pub fn setup_controls(widgets: &PanelWidgets) {
                     let mgr = Rc::clone(&mgr_clone);
                     let pending_clone = Rc::clone(&pending_source);
 
-                    let new_source = glib::timeout_add_local(
-                        std::time::Duration::from_millis(50),
-                        move || {
+                    let new_source =
+                        glib::timeout_add_local(std::time::Duration::from_millis(50), move || {
                             let mgr_inner = Rc::clone(&mgr);
                             glib::spawn_future_local(async move {
                                 if let Err(e) = mgr_inner.set_brightness_percent(val).await {
@@ -124,8 +131,7 @@ pub fn setup_controls(widgets: &PanelWidgets) {
                             });
                             pending_clone.borrow_mut().take();
                             glib::ControlFlow::Break
-                        }
-                    );
+                        });
 
                     *pending_source.borrow_mut() = Some(new_source);
                 });
@@ -225,15 +231,16 @@ pub fn setup_controls(widgets: &PanelWidgets) {
 
             let max = n_scale.adjustment().upper();
             n_scale.set_value(kelvin_to_slider(night_temp, max));
+            let icon_config = Config::load();
 
             if night_enabled {
                 n_scale.set_sensitive(true);
-                controls_panel::set_button_glyph(&night_mode_btn, &night_mode_on_icon);
+                controls_panel::set_button_glyph(&night_mode_btn, &icon_config.night_mode_on_icon);
                 if let Err(e) = manager.set_temperature(night_temp) {
                     log::warn!("Failed to apply initial night mode temperature: {}", e);
                 }
             } else {
-                controls_panel::set_button_glyph(&night_mode_btn, &night_mode_off_icon);
+                controls_panel::set_button_glyph(&night_mode_btn, &icon_config.night_mode_off_icon);
             }
 
             // ── Moon button: toggle Night Mode on/off ────────────────
@@ -248,13 +255,15 @@ pub fn setup_controls(widgets: &PanelWidgets) {
                 if new_enabled {
                     let temp = store_btn.borrow().night_mode.temperature;
                     n_scale_btn.set_sensitive(true);
-                    controls_panel::set_button_glyph(btn, &night_mode_on_icon);
+                    let config = Config::load();
+                    controls_panel::set_button_glyph(btn, &config.night_mode_on_icon);
                     if let Err(e) = mgr_btn.set_temperature(temp) {
                         log::warn!("Failed to enable night mode: {}", e);
                     }
                 } else {
                     n_scale_btn.set_sensitive(false);
-                    controls_panel::set_button_glyph(btn, &night_mode_off_icon);
+                    let config = Config::load();
+                    controls_panel::set_button_glyph(btn, &config.night_mode_off_icon);
                     if let Err(e) = mgr_btn.set_temperature(NEUTRAL_TEMP_KELVIN) {
                         log::warn!("Failed to disable night mode: {}", e);
                     }
@@ -285,5 +294,27 @@ pub fn setup_controls(widgets: &PanelWidgets) {
             });
         }
         Err(e) => log::error!("Failed to init NightModeManager: {}", e),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn temperature_mapping_has_expected_endpoints() {
+        assert!((slider_to_kelvin(0.0, 3500.0) - NEUTRAL_TEMP_KELVIN).abs() < f64::EPSILON);
+        assert!((slider_to_kelvin(3500.0, 3500.0) - MIN_TEMP_KELVIN).abs() < f64::EPSILON);
+        assert!((kelvin_to_slider(NEUTRAL_TEMP_KELVIN, 3500.0)).abs() < 1e-6);
+        assert!((kelvin_to_slider(MIN_TEMP_KELVIN, 3500.0) - 3500.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn temperature_mapping_is_monotonic_and_clamped() {
+        let warm = slider_to_kelvin(2500.0, 3500.0);
+        let warmer = slider_to_kelvin(3000.0, 3500.0);
+        assert!(warmer < warm);
+        assert_eq!(slider_to_kelvin(-1.0, 3500.0), NEUTRAL_TEMP_KELVIN);
+        assert_eq!(slider_to_kelvin(4000.0, 3500.0), MIN_TEMP_KELVIN);
     }
 }

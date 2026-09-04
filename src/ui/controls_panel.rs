@@ -1,9 +1,20 @@
-use gtk4::{prelude::*, glib, Box, Button, Image, Label, Orientation, Revealer, RevealerTransitionType, Scale, ToggleButton, Window};
+use futures_util::future::LocalBoxFuture;
+use gtk4::{
+    Box, Button, Image, Label, Orientation, Revealer, RevealerTransitionType, Scale, ToggleButton,
+    Window, glib, prelude::*,
+};
 
 use crate::config::Config;
+use crate::error::AppResult;
 
 /// Duration of the slider reveal animation in milliseconds
-pub const SLIDE_TRANSITION_MS: u32 = 250;
+pub(crate) const SLIDE_TRANSITION_MS: u32 = 250;
+
+fn set_pointer_cursor<W: IsA<gtk4::Widget>>(widget: &W) {
+    if let Some(cursor) = gtk4::gdk::Cursor::from_name("pointer", None) {
+        widget.set_cursor(Some(&cursor));
+    }
+}
 
 fn make_glyph_button(icon: &str, tooltip: &str) -> Button {
     let label = Label::builder()
@@ -13,11 +24,8 @@ fn make_glyph_button(icon: &str, tooltip: &str) -> Button {
         .build();
     label.add_css_class("glyph-button-label");
 
-    let button = Button::builder()
-        .child(&label)
-        .tooltip_text(tooltip)
-        .cursor(&gtk4::gdk::Cursor::from_name("pointer", None).unwrap())
-        .build();
+    let button = Button::builder().child(&label).tooltip_text(tooltip).build();
+    set_pointer_cursor(&button);
     button.add_css_class("flat");
     button.add_css_class("circular");
     button.add_css_class("glyph-button");
@@ -38,7 +46,12 @@ pub(crate) fn set_button_glyph(button: &Button, glyph: &str) {
     }
 }
 
-fn show_confirm_dialog(window: &Window, title: &str, message: &str, action: impl FnOnce() + 'static) {
+fn show_confirm_dialog(
+    window: &Window,
+    title: &str,
+    message: &str,
+    action: impl FnOnce() + 'static,
+) {
     let dialog = gtk4::AlertDialog::builder()
         .modal(true)
         .message(title)
@@ -57,11 +70,12 @@ fn show_confirm_dialog(window: &Window, title: &str, message: &str, action: impl
     });
 }
 
-fn show_error_dialog(window: Option<&Window>, message: &str) {
+fn show_error_dialog(window: Option<&Window>, message: impl Into<String>) {
+    let message = message.into();
     let dialog = gtk4::AlertDialog::builder()
         .modal(true)
         .message("Error")
-        .detail(message)
+        .detail(&message)
         .buttons(["Ok"])
         .default_button(0)
         .build();
@@ -77,9 +91,41 @@ fn show_error_dialog(window: Option<&Window>, message: &str) {
     }
 }
 
+fn connect_power_button(btn: &Button, title: &str, message: &str, action: PowerAction) {
+    let title = title.to_string();
+    let message = message.to_string();
+    btn.connect_clicked(move |button| {
+        let Some(window) = button.root().and_downcast::<Window>() else {
+            log::warn!("Power button '{}' was clicked but has no window attachment", title);
+            return;
+        };
+        let title_clone = title.clone();
+        let window_clone = window.clone();
+        show_confirm_dialog(&window, &title, &message, move || {
+            glib::spawn_future_local(async move {
+                if let Err(error) = action().await {
+                    log::error!("{}: {}", title_clone, error);
+                    show_error_dialog(Some(&window_clone), error.to_string());
+                }
+            });
+        });
+    });
+}
+
+pub(crate) type PowerAction = fn() -> LocalBoxFuture<'static, AppResult<()>>;
+
+/// Backend actions supplied by the application layer to the controls view.
+pub(crate) struct PowerActions {
+    pub(crate) poweroff: PowerAction,
+    pub(crate) reboot: PowerAction,
+    pub(crate) suspend: PowerAction,
+    pub(crate) logout: PowerAction,
+}
+
 /// The unified panel for Brightness, Volume, and Night Mode controls.
+#[derive(Clone)]
 #[allow(dead_code)]
-pub struct ControlsPanel {
+pub(crate) struct ControlsPanel {
     container: Box,
     brightness_scale: Scale,
     brightness_btn: Button,
@@ -89,6 +135,10 @@ pub struct ControlsPanel {
     night_mode_scale: Scale,
     night_mode_btn: Button,
     toggle_button: ToggleButton,
+    poweroff_btn: Button,
+    reboot_btn: Button,
+    suspend_btn: Button,
+    logout_btn: Button,
 }
 
 impl Default for ControlsPanel {
@@ -98,17 +148,77 @@ impl Default for ControlsPanel {
 }
 
 impl ControlsPanel {
-    pub fn container(&self) -> &Box { &self.container }
-    pub fn brightness_scale(&self) -> &Scale { &self.brightness_scale }
-    pub fn brightness_btn(&self) -> &Button { &self.brightness_btn }
-    pub fn volume_scale(&self) -> &Scale { &self.volume_scale }
-    pub fn volume_icon(&self) -> &Image { &self.volume_icon }
-    pub fn volume_btn(&self) -> &Button { &self.volume_btn }
-    pub fn night_mode_scale(&self) -> &Scale { &self.night_mode_scale }
-    pub fn night_mode_btn(&self) -> &Button { &self.night_mode_btn }
-    pub fn toggle_button(&self) -> &ToggleButton { &self.toggle_button }
+    pub(crate) fn container(&self) -> &Box {
+        &self.container
+    }
+    pub(crate) fn brightness_scale(&self) -> &Scale {
+        &self.brightness_scale
+    }
+    pub(crate) fn brightness_btn(&self) -> &Button {
+        &self.brightness_btn
+    }
+    pub(crate) fn volume_scale(&self) -> &Scale {
+        &self.volume_scale
+    }
+    pub(crate) fn volume_icon(&self) -> &Image {
+        &self.volume_icon
+    }
+    pub(crate) fn volume_btn(&self) -> &Button {
+        &self.volume_btn
+    }
+    pub(crate) fn night_mode_scale(&self) -> &Scale {
+        &self.night_mode_scale
+    }
+    pub(crate) fn night_mode_btn(&self) -> &Button {
+        &self.night_mode_btn
+    }
+    pub(crate) fn toggle_button(&self) -> &ToggleButton {
+        &self.toggle_button
+    }
 
-    pub fn new() -> Self {
+    /// Apply configuration values that can change without rebuilding widgets.
+    pub(crate) fn apply_config(&self, config: &Config) {
+        let night_mode_icon = if self.night_mode_scale.is_sensitive() {
+            &config.night_mode_on_icon
+        } else {
+            &config.night_mode_off_icon
+        };
+        set_button_glyph(&self.night_mode_btn, night_mode_icon);
+        set_button_glyph(&self.poweroff_btn, &config.poweroff_icon);
+        set_button_glyph(&self.reboot_btn, &config.reboot_icon);
+        set_button_glyph(&self.suspend_btn, &config.suspend_icon);
+        set_button_glyph(&self.logout_btn, &config.logout_icon);
+    }
+
+    /// Attach application-provided power actions to the power buttons.
+    pub(crate) fn bind_power_actions(&self, actions: PowerActions) {
+        connect_power_button(
+            &self.poweroff_btn,
+            "Power Off",
+            "Are you sure you want to power off the system?",
+            actions.poweroff,
+        );
+        connect_power_button(
+            &self.reboot_btn,
+            "Reboot",
+            "Are you sure you want to reboot the system?",
+            actions.reboot,
+        );
+        connect_power_button(
+            &self.suspend_btn,
+            "Suspend",
+            "Are you sure you want to suspend the system?",
+            actions.suspend,
+        );
+        connect_power_button(
+            &self.logout_btn,
+            "Logout",
+            "Are you sure you want to log out?",
+            actions.logout,
+        );
+    }
+
+    pub(crate) fn new() -> Self {
         let config = Config::load();
         let container = Box::builder()
             .orientation(Orientation::Vertical)
@@ -119,23 +229,20 @@ impl ControlsPanel {
             .margin_end(16)
             .css_classes(["controls-panel"])
             .build();
-            
+
         // Toggle Button for collapsing/expanding
         let toggle_button = ToggleButton::builder()
             .icon_name("pan-down-symbolic")
             .halign(gtk4::Align::Center)
             .margin_bottom(8) // Add some breathing room below the button itself
             .tooltip_text("Show/Hide Controls")
-            .cursor(&gtk4::gdk::Cursor::from_name("pointer", None).unwrap())
             .build();
+        set_pointer_cursor(&toggle_button);
         toggle_button.add_css_class("flat");
         toggle_button.add_css_class("circular");
-            
+
         // The container holding all the sliders
-        let sliders_box = Box::builder()
-            .orientation(Orientation::Vertical)
-            .spacing(12)
-            .build();
+        let sliders_box = Box::builder().orientation(Orientation::Vertical).spacing(12).build();
 
         // Revealer to animate the sliders box
         let revealer = Revealer::builder()
@@ -158,20 +265,18 @@ impl ControlsPanel {
         });
 
         // Brightness Row
-        let brightness_row = Box::builder()
-            .orientation(Orientation::Horizontal)
-            .spacing(12)
-            .build();
+        let brightness_row =
+            Box::builder().orientation(Orientation::Horizontal).spacing(12).build();
 
         // Clickable brightness icon: click to toggle between 1% dim and last custom level
         let brightness_btn = Button::builder()
             .icon_name("display-brightness-symbolic")
             .tooltip_text("Click to toggle minimum brightness")
-            .cursor(&gtk4::gdk::Cursor::from_name("pointer", None).unwrap())
             .build();
+        set_pointer_cursor(&brightness_btn);
         brightness_btn.add_css_class("flat");
         brightness_btn.add_css_class("circular");
-            
+
         let brightness_scale = Scale::builder()
             .orientation(Orientation::Horizontal)
             .hexpand(true)
@@ -179,24 +284,21 @@ impl ControlsPanel {
             .value_pos(gtk4::PositionType::Right)
             .tooltip_text("Brightness")
             .adjustment(&gtk4::Adjustment::new(100.0, 1.0, 100.0, 1.0, 10.0, 0.0))
-            .cursor(&gtk4::gdk::Cursor::from_name("pointer", None).unwrap())
             .build();
+        set_pointer_cursor(&brightness_scale);
 
         brightness_row.append(&brightness_btn);
         brightness_row.append(&brightness_scale);
 
         // Volume Row
-        let volume_row = Box::builder()
-            .orientation(Orientation::Horizontal)
-            .spacing(12)
-            .build();
+        let volume_row = Box::builder().orientation(Orientation::Horizontal).spacing(12).build();
 
         // Clickable volume icon: click to toggle mute
         let volume_btn = Button::builder()
             .icon_name("audio-volume-high-symbolic")
             .tooltip_text("Click to toggle mute")
-            .cursor(&gtk4::gdk::Cursor::from_name("pointer", None).unwrap())
             .build();
+        set_pointer_cursor(&volume_btn);
         volume_btn.add_css_class("flat");
         volume_btn.add_css_class("circular");
 
@@ -206,7 +308,7 @@ impl ControlsPanel {
             .pixel_size(16)
             .visible(false)
             .build();
-            
+
         let volume_scale = Scale::builder()
             .orientation(Orientation::Horizontal)
             .hexpand(true)
@@ -214,21 +316,20 @@ impl ControlsPanel {
             .value_pos(gtk4::PositionType::Right)
             .tooltip_text("Volume")
             .adjustment(&gtk4::Adjustment::new(0.0, 0.0, 100.0, 1.0, 10.0, 0.0))
-            .cursor(&gtk4::gdk::Cursor::from_name("pointer", None).unwrap())
             .build();
+        set_pointer_cursor(&volume_scale);
 
         volume_row.append(&volume_btn);
         volume_row.append(&volume_scale);
 
         // Night Mode Row
-        let night_mode_row = Box::builder()
-            .orientation(Orientation::Horizontal)
-            .spacing(12)
-            .build();
+        let night_mode_row =
+            Box::builder().orientation(Orientation::Horizontal).spacing(12).build();
 
         // Clickable moon icon: click to toggle Night Mode on/off
-        let night_mode_btn = make_glyph_button(&config.night_mode_off_icon, "Click to toggle Night Mode");
-            
+        let night_mode_btn =
+            make_glyph_button(&config.night_mode_off_icon, "Click to toggle Night Mode");
+
         // Map 0 -> 6500K (coolest/no effect), 3500 -> 3000K (warmest)
         let night_mode_scale = Scale::builder()
             .orientation(Orientation::Horizontal)
@@ -237,8 +338,8 @@ impl ControlsPanel {
             .value_pos(gtk4::PositionType::Right)
             .tooltip_text("Night Mode (Color Temperature)")
             .adjustment(&gtk4::Adjustment::new(0.0, 0.0, 3500.0, 100.0, 500.0, 0.0))
-            .cursor(&gtk4::gdk::Cursor::from_name("pointer", None).unwrap())
             .build();
+        set_pointer_cursor(&night_mode_scale);
         night_mode_scale.set_sensitive(false); // Disabled until toggled On
 
         night_mode_row.append(&night_mode_btn);
@@ -254,42 +355,13 @@ impl ControlsPanel {
             .css_classes(["power-row"])
             .build();
 
-        fn connect_power_button(
-            btn: &Button,
-            title: &str,
-            message: &str,
-            action: impl Fn() -> Result<(), String> + Clone + 'static,
-        ) {
-            let title = title.to_string();
-            let message = message.to_string();
-            btn.connect_clicked(move |b| {
-                let Some(win) = b.root().and_downcast::<Window>() else {
-                    log::warn!("Power button '{}' was clicked but has no window attachment", title);
-                    return;
-                };
-                let action = action.clone();
-                let title_clone = title.clone();
-                let win_clone = win.clone();
-                show_confirm_dialog(&win, &title, &message, move || {
-                    if let Err(e) = action() {
-                        log::error!("{}: {}", title_clone, e);
-                        show_error_dialog(Some(&win_clone), &e);
-                    }
-                });
-            });
-        }
-
         let btn_poweroff = make_glyph_button(&config.poweroff_icon, "Power Off");
-        connect_power_button(&btn_poweroff, "Power Off", "Are you sure you want to power off the system?", crate::controls::power::poweroff);
-        
+
         let btn_reboot = make_glyph_button(&config.reboot_icon, "Reboot");
-        connect_power_button(&btn_reboot, "Reboot", "Are you sure you want to reboot the system?", crate::controls::power::reboot);
-        
+
         let btn_suspend = make_glyph_button(&config.suspend_icon, "Suspend / Sleep");
-        connect_power_button(&btn_suspend, "Suspend", "Are you sure you want to suspend the system?", crate::controls::power::suspend);
-        
+
         let btn_logout = make_glyph_button(&config.logout_icon, "Log Out");
-        connect_power_button(&btn_logout, "Logout", "Are you sure you want to log out?", crate::controls::power::logout);
 
         power_row.append(&btn_logout);
         power_row.append(&btn_suspend);
@@ -301,10 +373,10 @@ impl ControlsPanel {
         sliders_box.append(&volume_row);
         sliders_box.append(&night_mode_row);
         sliders_box.append(&power_row);
-        
+
         // Assemble main container logic
         container.append(&toggle_button); // Pin button above
-        container.append(&revealer);      // Let sliders drop below
+        container.append(&revealer); // Let sliders drop below
 
         Self {
             container,
@@ -316,6 +388,10 @@ impl ControlsPanel {
             night_mode_scale,
             night_mode_btn,
             toggle_button,
+            poweroff_btn: btn_poweroff,
+            reboot_btn: btn_reboot,
+            suspend_btn: btn_suspend,
+            logout_btn: btn_logout,
         }
     }
 }

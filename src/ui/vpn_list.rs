@@ -6,9 +6,9 @@ use gtk4::{Label, ListBox, PolicyType, ScrolledWindow, SelectionMode};
 use crate::ui::window::{MAX_LIST_HEIGHT, MIN_LIST_HEIGHT};
 
 use super::vpn_row;
-use crate::dbus::vpn_manager::{VpnActive, VpnProfile};
+use crate::domain::vpn::{VpnActive, VpnProfile};
 
-pub fn build_vpn_list() -> (ScrolledWindow, ListBox) {
+pub(crate) fn build_vpn_list() -> (ScrolledWindow, ListBox) {
     let list_box = ListBox::new();
     list_box.add_css_class("vpn-list");
     list_box.set_selection_mode(SelectionMode::None);
@@ -25,7 +25,7 @@ pub fn build_vpn_list() -> (ScrolledWindow, ListBox) {
     (scrolled, list_box)
 }
 
-pub fn populate_vpn_list(
+pub(crate) fn populate_vpn_list(
     list_box: &ListBox,
     profiles: &[VpnProfile],
     active_by_conn: &std::collections::HashMap<String, VpnActive>,
@@ -49,23 +49,30 @@ pub fn populate_vpn_list(
     for p in profiles {
         let pending_label = pending.get(&p.connection_path).cloned();
         let active = active_by_conn.get(&p.connection_path);
-        let row = vpn_row::build_vpn_row(p, active, pending_label.as_deref(), {
-            let on_toggle = on_toggle.clone();
-            let conn_path = p.connection_path.clone();
-            move |enabled| {
-                on_toggle(conn_path.clone(), enabled);
-            }
-        }, {
-            let on_edit = on_edit.clone();
-            let conn_path = p.connection_path.clone();
-            let uuid = p.uuid.clone();
-            move || on_edit(conn_path.clone(), uuid.clone())
-        }, {
-            let on_delete = on_delete.clone();
-            let conn_path = p.connection_path.clone();
-            let name = p.name.clone();
-            move || on_delete(conn_path.clone(), name.clone())
-        });
+        let row = vpn_row::build_vpn_row(
+            p,
+            active,
+            pending_label.as_deref(),
+            {
+                let on_toggle = on_toggle.clone();
+                let conn_path = p.connection_path.clone();
+                move |enabled| {
+                    on_toggle(conn_path.clone(), enabled);
+                }
+            },
+            {
+                let on_edit = on_edit.clone();
+                let conn_path = p.connection_path.clone();
+                let uuid = p.uuid.clone();
+                move || on_edit(conn_path.clone(), uuid.clone())
+            },
+            {
+                let on_delete = on_delete.clone();
+                let conn_path = p.connection_path.clone();
+                let name = p.name.clone();
+                move || on_delete(conn_path.clone(), name.clone())
+            },
+        );
         list_box.append(&row);
         row_paths.push(p.connection_path.clone());
     }

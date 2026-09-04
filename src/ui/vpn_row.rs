@@ -4,12 +4,12 @@ use gtk4::glib::Propagation;
 use gtk4::prelude::*;
 use gtk4::{Box as GtkBox, Label, ListBoxRow, Orientation, Switch};
 
-use crate::dbus::vpn_manager::{VpnActive, VpnProfile};
+use crate::domain::vpn::{VpnActive, VpnProfile};
 
 /// Build a `ListBoxRow` for a VPN profile.
 ///
 /// Layout: [Name / Subtitle] [toggle]
-pub fn build_vpn_row(
+pub(crate) fn build_vpn_row(
     profile: &VpnProfile,
     active: Option<&VpnActive>,
     pending_label: Option<&str>,
@@ -20,14 +20,12 @@ pub fn build_vpn_row(
     let row = ListBoxRow::new();
     row.add_css_class("vpn-row");
 
-    let is_active = active.map(|a| a.state == 2).unwrap_or(false);
+    let is_active = active.map(VpnActive::is_connected).unwrap_or(false);
     if is_active {
         row.add_css_class("connected");
     }
     if pending_label.is_some()
-        || active
-            .map(|a| a.state == 1 || a.state == 3)
-            .unwrap_or(false)
+        || active.map(|a| a.is_connecting() || a.is_disconnecting()).unwrap_or(false)
     {
         row.add_css_class("pending");
     }
@@ -78,7 +76,7 @@ pub fn build_vpn_row(
 
     hbox.append(&toggle);
 
-    use gtk4::{gio, MenuButton, PopoverMenu};
+    use gtk4::{MenuButton, PopoverMenu, gio};
 
     let menu = gio::Menu::new();
     menu.append(Some("Edit Profile"), Some("row.edit"));
@@ -132,9 +130,5 @@ fn vpn_subtitle(active: Option<&VpnActive>, pending: Option<&str>) -> String {
         parts.push(p.to_string());
     }
 
-    if parts.is_empty() {
-        "Disconnected".to_string()
-    } else {
-        parts.join(" · ")
-    }
+    if parts.is_empty() { "Disconnected".to_string() } else { parts.join(" · ") }
 }

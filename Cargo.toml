@@ -2,6 +2,11 @@
 name = "wifi-manager"
 version = "0.2.0"
 edition = "2024"
+rust-version = "1.92"
+description = "A lightweight WiFi and Bluetooth manager for Wayland compositors"
+license = "MIT"
+repository = "https://github.com/Vijay-papanaboina/wifi-manager"
+readme = "README.md"
 
 [dependencies]
 clap = { version = "4.5.58", features = ["derive"] }
@@ -20,3 +25,6 @@ toml = "0.8"
 wayland-client = "0.31.12"
 wayland-protocols-wlr = "0.3.10"
 zbus = "5.13.2"
+
+[lints.rust]
+unsafe_code = "deny"

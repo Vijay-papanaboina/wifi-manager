@@ -3,12 +3,12 @@
 use gtk4::prelude::*;
 use gtk4::{Box as GtkBox, Label, ListBoxRow, Orientation};
 
-use crate::dbus::bluetooth_device::BluetoothDevice;
+use crate::domain::bluetooth::BluetoothDevice;
 
 /// Build a `ListBoxRow` for a single Bluetooth device.
 ///
 /// Layout: [device_icon] [Name / Subtitle] [menu_btn]
-pub fn build_device_row(
+pub(crate) fn build_device_row(
     device: &BluetoothDevice,
     pending_label: Option<String>,
     on_remove: impl Fn(String) + 'static,
@@ -93,7 +93,7 @@ pub fn build_device_row(
 
     // Menu button (for paired or connected devices)
     if device.paired || device.connected {
-        use gtk4::{gio, MenuButton, PopoverMenu};
+        use gtk4::{MenuButton, PopoverMenu, gio};
 
         let menu = gio::Menu::new();
         menu.append(Some("Unpair"), Some("row.remove"));

@@ -5,12 +5,12 @@
 
 use zbus::zvariant::OwnedObjectPath;
 
-use super::bluetooth_device::{BluetoothDevice, DeviceCategory};
 use super::bluez_proxies::*;
+use crate::domain::bluetooth::{BluetoothDevice, DeviceCategory};
 
 /// The Bluetooth manager that wraps all BlueZ D-Bus interactions.
 #[derive(Clone)]
-pub struct BluetoothManager {
+pub(crate) struct BluetoothManager {
     connection: zbus::Connection,
     adapter_path: OwnedObjectPath,
 }
@@ -21,7 +21,7 @@ impl BluetoothManager {
     ///
     /// Returns `None` if no Bluetooth adapter is available (not an error —
     /// the app should simply hide the Bluetooth tab).
-    pub async fn new() -> Option<Self> {
+    pub(crate) async fn new() -> Option<Self> {
         let connection = match zbus::Connection::system().await {
             Ok(c) => c,
             Err(e) => {
@@ -63,10 +63,7 @@ impl BluetoothManager {
 
         log::info!("Found Bluetooth adapter: {}", adapter_path);
 
-        Some(Self {
-            connection,
-            adapter_path,
-        })
+        Some(Self { connection, adapter_path })
     }
 
     // ========================================================================
@@ -74,7 +71,7 @@ impl BluetoothManager {
     // ========================================================================
 
     /// Start scanning for nearby Bluetooth devices.
-    pub async fn start_discovery(&self) -> zbus::Result<()> {
+    pub(crate) async fn start_discovery(&self) -> zbus::Result<()> {
         let adapter = self.adapter_proxy().await?;
         // Ignore "already discovering" errors
         match adapter.start_discovery().await {
@@ -95,7 +92,7 @@ impl BluetoothManager {
     }
 
     /// Stop an ongoing discovery session.
-    pub async fn stop_discovery(&self) -> zbus::Result<()> {
+    pub(crate) async fn stop_discovery(&self) -> zbus::Result<()> {
         let adapter = self.adapter_proxy().await?;
         // Ignore "not discovering" errors
         match adapter.stop_discovery().await {
@@ -116,7 +113,7 @@ impl BluetoothManager {
     }
 
     /// Check if discovery is currently active.
-    pub async fn is_discovering(&self) -> zbus::Result<bool> {
+    pub(crate) async fn is_discovering(&self) -> zbus::Result<bool> {
         let adapter = self.adapter_proxy().await?;
         adapter.discovering().await
     }
@@ -128,7 +125,7 @@ impl BluetoothManager {
     /// Get a list of all known Bluetooth devices (paired + discovered).
     ///
     /// Devices are sorted: connected first, then paired, then by name.
-    pub async fn get_devices(&self) -> zbus::Result<Vec<BluetoothDevice>> {
+    pub(crate) async fn get_devices(&self) -> zbus::Result<Vec<BluetoothDevice>> {
         let obj_manager = BluezObjectManagerProxy::new(&self.connection).await?;
         let objects = obj_manager.get_managed_objects().await?;
 
@@ -159,14 +156,14 @@ impl BluetoothManager {
     // ========================================================================
 
     /// Connect to a Bluetooth device (must be paired or "Just Works").
-    pub async fn connect_device(&self, device_path: &str) -> zbus::Result<()> {
+    pub(crate) async fn connect_device(&self, device_path: &str) -> zbus::Result<()> {
         let device = self.device_proxy(device_path).await?;
         log::info!("Connecting to Bluetooth device: {device_path}");
         device.connect().await
     }
 
     /// Disconnect a connected Bluetooth device.
-    pub async fn disconnect_device(&self, device_path: &str) -> zbus::Result<()> {
+    pub(crate) async fn disconnect_device(&self, device_path: &str) -> zbus::Result<()> {
         let device = self.device_proxy(device_path).await?;
         log::info!("Disconnecting Bluetooth device: {device_path}");
         device.disconnect().await
@@ -176,14 +173,14 @@ impl BluetoothManager {
     ///
     /// For v1, only "Just Works" pairing is supported (no PIN agent).
     /// Devices requiring PIN entry should be paired via `bluetoothctl`.
-    pub async fn pair_device(&self, device_path: &str) -> zbus::Result<()> {
+    pub(crate) async fn pair_device(&self, device_path: &str) -> zbus::Result<()> {
         let device = self.device_proxy(device_path).await?;
         log::info!("Pairing with Bluetooth device: {device_path}");
         device.pair().await
     }
 
     /// Set the trusted state of a device (auto-connect on boot).
-    pub async fn trust_device(&self, device_path: &str, trusted: bool) -> zbus::Result<()> {
+    pub(crate) async fn trust_device(&self, device_path: &str, trusted: bool) -> zbus::Result<()> {
         let device = self.device_proxy(device_path).await?;
         device.set_trusted(trusted).await?;
         log::info!(
@@ -195,7 +192,7 @@ impl BluetoothManager {
     }
 
     /// Remove (forget/unpair) a device from the adapter.
-    pub async fn remove_device(&self, device_path: &str) -> zbus::Result<()> {
+    pub(crate) async fn remove_device(&self, device_path: &str) -> zbus::Result<()> {
         let adapter = self.adapter_proxy().await?;
         let path = zbus::zvariant::ObjectPath::try_from(device_path)
             .map_err(|e| zbus::Error::Failure(format!("Invalid device path: {e}")))?;
@@ -209,19 +206,16 @@ impl BluetoothManager {
     // ========================================================================
 
     /// Check if the Bluetooth adapter is powered on.
-    pub async fn is_powered(&self) -> zbus::Result<bool> {
+    pub(crate) async fn is_powered(&self) -> zbus::Result<bool> {
         let adapter = self.adapter_proxy().await?;
         adapter.powered().await
     }
 
     /// Enable or disable the Bluetooth adapter.
-    pub async fn set_powered(&self, powered: bool) -> zbus::Result<()> {
+    pub(crate) async fn set_powered(&self, powered: bool) -> zbus::Result<()> {
         let adapter = self.adapter_proxy().await?;
         adapter.set_powered(powered).await?;
-        log::info!(
-            "Bluetooth adapter {}",
-            if powered { "powered on" } else { "powered off" }
-        );
+        log::info!("Bluetooth adapter {}", if powered { "powered on" } else { "powered off" });
         Ok(())
     }
 
@@ -230,12 +224,12 @@ impl BluetoothManager {
     // ========================================================================
 
     /// Get a reference to the D-Bus connection.
-    pub fn connection(&self) -> &zbus::Connection {
+    pub(crate) fn connection(&self) -> &zbus::Connection {
         &self.connection
     }
 
     /// Get the adapter object path.
-    pub fn adapter_path(&self) -> &str {
+    pub(crate) fn adapter_path(&self) -> &str {
         self.adapter_path.as_str()
     }
 
@@ -245,18 +239,12 @@ impl BluetoothManager {
 
     /// Create an Adapter1 proxy for our adapter.
     async fn adapter_proxy(&self) -> zbus::Result<Adapter1Proxy<'_>> {
-        Adapter1Proxy::builder(&self.connection)
-            .path(self.adapter_path.clone())?
-            .build()
-            .await
+        Adapter1Proxy::builder(&self.connection).path(self.adapter_path.clone())?.build().await
     }
 
     /// Create a Device1 proxy for a specific device path.
     async fn device_proxy<'a>(&self, path: &'a str) -> zbus::Result<Device1Proxy<'a>> {
-        Device1Proxy::builder(&self.connection)
-            .path(path)?
-            .build()
-            .await
+        Device1Proxy::builder(&self.connection).path(path)?.build().await
     }
 
     /// Parse a Device1's properties from ObjectManager into a BluetoothDevice.
@@ -270,40 +258,25 @@ impl BluetoothManager {
             .and_then(|v| <String>::try_from(v.clone()).ok())
             .unwrap_or_default();
 
-        let name = props
-            .get("Name")
-            .and_then(|v| <String>::try_from(v.clone()).ok())
-            .unwrap_or_default();
+        let name =
+            props.get("Name").and_then(|v| <String>::try_from(v.clone()).ok()).unwrap_or_default();
 
-        let alias = props
-            .get("Alias")
-            .and_then(|v| <String>::try_from(v.clone()).ok())
-            .unwrap_or_default();
+        let alias =
+            props.get("Alias").and_then(|v| <String>::try_from(v.clone()).ok()).unwrap_or_default();
 
-        let icon_hint = props
-            .get("Icon")
-            .and_then(|v| <String>::try_from(v.clone()).ok())
-            .unwrap_or_default();
+        let icon_hint =
+            props.get("Icon").and_then(|v| <String>::try_from(v.clone()).ok()).unwrap_or_default();
 
-        let paired = props
-            .get("Paired")
-            .and_then(|v| <bool>::try_from(v.clone()).ok())
-            .unwrap_or(false);
+        let paired =
+            props.get("Paired").and_then(|v| <bool>::try_from(v.clone()).ok()).unwrap_or(false);
 
-        let connected = props
-            .get("Connected")
-            .and_then(|v| <bool>::try_from(v.clone()).ok())
-            .unwrap_or(false);
+        let connected =
+            props.get("Connected").and_then(|v| <bool>::try_from(v.clone()).ok()).unwrap_or(false);
 
-        let trusted = props
-            .get("Trusted")
-            .and_then(|v| <bool>::try_from(v.clone()).ok())
-            .unwrap_or(false);
+        let trusted =
+            props.get("Trusted").and_then(|v| <bool>::try_from(v.clone()).ok()).unwrap_or(false);
 
-        let rssi = props
-            .get("RSSI")
-            .and_then(|v| <i16>::try_from(v.clone()).ok())
-            .unwrap_or(0);
+        let rssi = props.get("RSSI").and_then(|v| <i16>::try_from(v.clone()).ok()).unwrap_or(0);
 
         // Display name: prefer alias, then name, then address
         let display_name = if !alias.is_empty() {

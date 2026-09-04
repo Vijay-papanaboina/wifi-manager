@@ -31,14 +31,10 @@ impl Dispatch<WlRegistry, ()> for AppState {
         _: &Connection,
         qh: &QueueHandle<Self>,
     ) {
-        if let wayland_client::protocol::wl_registry::Event::Global {
-            name, interface, ..
-        } = event
+        if let wayland_client::protocol::wl_registry::Event::Global { name, interface, .. } = event
         {
             if interface == "wl_output" {
-                state
-                    .outputs
-                    .push(registry.bind::<WlOutput, _, _>(name, 1, qh, ()));
+                state.outputs.push(registry.bind::<WlOutput, _, _>(name, 1, qh, ()));
             } else if interface == "zwlr_gamma_control_manager_v1" {
                 state.gamma_manager =
                     Some(registry.bind::<ZwlrGammaControlManagerV1, _, _>(name, 1, qh, ()));
@@ -94,11 +90,12 @@ impl Dispatch<ZwlrGammaControlV1, ()> for AppState {
 }
 
 /// Default timeout for Wayland thread initialization.
-pub const NIGHT_MODE_INIT_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(1000);
+pub(crate) const NIGHT_MODE_INIT_TIMEOUT: std::time::Duration =
+    std::time::Duration::from_millis(1000);
 
 /// Manages the Wayland background thread and handles sending updated
 /// color temperatures to the compositor for night mode rendering.
-pub struct NightModeManager {
+pub(crate) struct NightModeManager {
     sender: Option<mpsc::Sender<f64>>,
     wayland_handle: Option<thread::JoinHandle<()>>,
 }
@@ -106,7 +103,7 @@ pub struct NightModeManager {
 impl NightModeManager {
     /// Initializes a new NightModeManager, spawning a background thread to lock and
     /// manipulate the `wlr_gamma_control_v1` Wayland protocol outputs.
-    pub fn new() -> Result<Self, Box<dyn std::error::Error>> {
+    pub(crate) fn new() -> Result<Self, Box<dyn std::error::Error>> {
         let (tx, rx) = mpsc::channel();
         let (init_tx, init_rx) = mpsc::channel();
 
@@ -124,17 +121,14 @@ impl NightModeManager {
 
         // Block on initialization status from Wayland thread
         match init_rx.recv_timeout(NIGHT_MODE_INIT_TIMEOUT) {
-            Ok(Ok(())) => Ok(NightModeManager {
-                sender: Some(tx),
-                wayland_handle: Some(handle),
-            }),
+            Ok(Ok(())) => Ok(NightModeManager { sender: Some(tx), wayland_handle: Some(handle) }),
             Ok(Err(e)) => Err(e),
             Err(e) => Err(format!("Night mode wayland thread initialization failed: {}", e).into()),
         }
     }
 
     /// Sends a new color temperature (in Kelvin) down the channel to the Wayland thread.
-    pub fn set_temperature(&self, temp: f64) -> Result<(), mpsc::SendError<f64>> {
+    pub(crate) fn set_temperature(&self, temp: f64) -> Result<(), mpsc::SendError<f64>> {
         if let Some(tx) = &self.sender {
             match tx.send(temp) {
                 Ok(_) => Ok(()),
@@ -149,10 +143,10 @@ impl NightModeManager {
 impl Drop for NightModeManager {
     fn drop(&mut self) {
         let _ = self.sender.take();
-        if let Some(handle) = self.wayland_handle.take() {
-            if let Err(e) = handle.join() {
-                log::error!("Failed to join Wayland thread: {:?}", e);
-            }
+        if let Some(handle) = self.wayland_handle.take()
+            && let Err(e) = handle.join()
+        {
+            log::error!("Failed to join Wayland thread: {:?}", e);
         }
     }
 }
@@ -258,17 +252,10 @@ fn run_wayland_thread(
         Ok(files) => {
             let _ = event_queue.roundtrip(&mut state);
             _active_gamma_files = files;
-            current_temp.store(
-                applied_temp.round() as u32,
-                std::sync::atomic::Ordering::SeqCst,
-            );
+            current_temp.store(applied_temp.round() as u32, std::sync::atomic::Ordering::SeqCst);
         }
         Err(e) => {
-            log::warn!(
-                "Failed to apply initial gamma ramps (temp: {}): {}",
-                applied_temp,
-                e
-            );
+            log::warn!("Failed to apply initial gamma ramps (temp: {}): {}", applied_temp, e);
         }
     }
 
@@ -310,6 +297,7 @@ fn run_wayland_thread(
 
 /// Manually maps RGB mathematical structures into a shared `memfd`,
 /// attaching the resulting `File` bytes directly to the Wayland output gamma controller.
+#[allow(unsafe_code)]
 fn apply_gamma_ramps(
     state: &AppState,
     temp: f64,
@@ -333,11 +321,7 @@ fn apply_gamma_ramps(
         let mut mmap = unsafe { MmapMut::map_mut(&file)? };
 
         for i in 0..size {
-            let progress = if size == 1 {
-                1.0
-            } else {
-                i as f64 / (size - 1) as f64
-            };
+            let progress = if size == 1 { 1.0 } else { i as f64 / (size - 1) as f64 };
             let val = (progress * 65535.0) as u16;
 
             let r = (val as f64 * r_mult) as u16;

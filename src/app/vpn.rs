@@ -15,15 +15,56 @@ use crate::dbus::proxies::NetworkManagerProxy;
 use crate::ui::vpn_list;
 use crate::ui::window::PanelWidgets;
 
-use super::{AppState, PendingVpnAction};
+use super::vpn_import::open_import_dialog;
 use super::vpn_utils::{
     confirm_delete_dialog, find_blocking_active_path_for_connect, humanize_vpn_error,
     launch_nm_connection_editor, update_vpn_header_status,
 };
-use super::vpn_import::open_import_dialog;
+use super::{AppState, PendingVpnAction};
 
 const VPN_REFRESH_INTERVAL_MS: u64 = 5000;
 const VPN_PENDING_TIMEOUT_MS: u64 = 20_000;
+
+/// Widgets shared by the VPN refresh and import workflows.
+///
+/// Grouping these handles prevents long argument lists and keeps the two
+/// workflows operating on one explicit view boundary.
+#[derive(Clone)]
+pub(super) struct VpnView {
+    pub(super) window: gtk4::ApplicationWindow,
+    pub(super) list_box: gtk4::ListBox,
+    pub(super) status: gtk4::Label,
+    pub(super) spinner: gtk4::Spinner,
+    pub(super) scrolled: gtk4::ScrolledWindow,
+    pub(super) import_btn: gtk4::Button,
+    pub(super) open_btn: gtk4::Button,
+}
+
+/// Ensure that refreshes started for the visible VPN page have a stable view
+/// token. Re-entering the page creates a new token and invalidates old work.
+fn ensure_vpn_view_active(state: &Rc<RefCell<AppState>>) -> u64 {
+    let mut st = state.borrow_mut();
+    if st.vpn_view_active { st.vpn_view_generation } else { st.activate_vpn_view() }
+}
+
+pub(super) fn deactivate_vpn_view(state: &Rc<RefCell<AppState>>) {
+    state.borrow_mut().deactivate_vpn_view();
+}
+
+fn is_current_vpn_view(state: &Rc<RefCell<AppState>>, view_token: u64) -> bool {
+    state.borrow().is_current_vpn_view(view_token)
+}
+
+fn set_vpn_status(
+    state: &Rc<RefCell<AppState>>,
+    status: &gtk4::Label,
+    view_token: u64,
+    text: &str,
+) {
+    if is_current_vpn_view(state, view_token) {
+        status.set_text(text);
+    }
+}
 
 pub(super) fn setup_vpn(
     widgets: &PanelWidgets,
@@ -60,9 +101,12 @@ pub(super) fn setup_vpn(
         let vpn_open_btn = vpn_open_btn.clone();
         move |btn| {
             if !btn.is_active() {
+                deactivate_vpn_view(&state);
+                stop_vpn_refresh(&state);
                 return;
             }
             if !wifi_tab.is_active() {
+                deactivate_vpn_view(&state);
                 return;
             }
 
@@ -75,13 +119,15 @@ pub(super) fn setup_vpn(
                 Rc::clone(&state),
                 wifi_tab.clone(),
                 vpn_tab.clone(),
-                window_for_tab.clone(),
-                vpn_list_box.clone(),
-                status.clone(),
-                vpn_spinner.clone(),
-                vpn_scroll.clone(),
-                vpn_import_btn.clone(),
-                vpn_open_btn.clone(),
+                VpnView {
+                    window: window_for_tab.clone(),
+                    list_box: vpn_list_box.clone(),
+                    status: status.clone(),
+                    spinner: vpn_spinner.clone(),
+                    scrolled: vpn_scroll.clone(),
+                    import_btn: vpn_import_btn.clone(),
+                    open_btn: vpn_open_btn.clone(),
+                },
             );
         }
     });
@@ -98,6 +144,7 @@ pub(super) fn setup_vpn(
                 return;
             }
 
+            deactivate_vpn_view(&state);
             stop_vpn_refresh(&state);
 
             scan_btn.set_sensitive(true);
@@ -127,13 +174,15 @@ pub(super) fn setup_vpn(
             begin_vpn_work(&state, &import_btn, &open_btn);
             open_import_dialog(
                 Rc::clone(&state),
-                window.clone(),
-                list_box.clone(),
-                status.clone(),
-                spinner.clone(),
-                scrolled.clone(),
-                import_btn.clone(),
-                open_btn.clone(),
+                VpnView {
+                    window: window.clone(),
+                    list_box: list_box.clone(),
+                    status: status.clone(),
+                    spinner: spinner.clone(),
+                    scrolled: scrolled.clone(),
+                    import_btn: import_btn.clone(),
+                    open_btn: open_btn.clone(),
+                },
                 {
                     let state = Rc::clone(&state);
                     let import_btn = import_btn.clone();
@@ -159,14 +208,9 @@ pub(super) fn start_vpn_refresh(
     state: Rc<RefCell<AppState>>,
     wifi_tab: gtk4::ToggleButton,
     vpn_tab: gtk4::ToggleButton,
-    window: gtk4::ApplicationWindow,
-    list_box: gtk4::ListBox,
-    status: gtk4::Label,
-    spinner: gtk4::Spinner,
-    scrolled: gtk4::ScrolledWindow,
-    import_btn: gtk4::Button,
-    open_btn: gtk4::Button,
+    view: VpnView,
 ) {
+    let view_token = ensure_vpn_view_active(&state);
     if state.borrow().vpn_refresh_source.is_some() {
         return;
     }
@@ -174,15 +218,9 @@ pub(super) fn start_vpn_refresh(
     // Immediate refresh on activation.
     glib::spawn_future_local({
         let state = Rc::clone(&state);
-        let list_box = list_box.clone();
-        let status = status.clone();
-        let spinner = spinner.clone();
-        let scrolled = scrolled.clone();
-        let window = window.clone();
-        let import_btn = import_btn.clone();
-        let open_btn = open_btn.clone();
+        let view = view.clone();
         async move {
-            refresh_vpn_list(state, window, list_box, status, spinner, scrolled, import_btn, open_btn).await;
+            refresh_vpn_list(state, view).await;
         }
     });
 
@@ -191,13 +229,7 @@ pub(super) fn start_vpn_refresh(
         let state = Rc::clone(&state);
         let wifi_tab = wifi_tab.clone();
         let vpn_tab = vpn_tab.clone();
-        let list_box = list_box.clone();
-        let status = status.clone();
-        let spinner = spinner.clone();
-        let scrolled = scrolled.clone();
-        let window = window.clone();
-        let import_btn = import_btn.clone();
-        let open_btn = open_btn.clone();
+        let view = view.clone();
         async move {
             let wifi = state.borrow().wifi.clone();
             let nm = match NetworkManagerProxy::new(wifi.connection()).await {
@@ -209,52 +241,41 @@ pub(super) fn start_vpn_refresh(
             };
             let mut stream = nm.receive_active_connections_changed().await;
             while let Some(_evt) = stream.next().await {
-                if !wifi_tab.is_active() || !vpn_tab.is_active() {
+                if !wifi_tab.is_active()
+                    || !vpn_tab.is_active()
+                    || !is_current_vpn_view(&state, view_token)
+                {
                     break;
                 }
-                refresh_vpn_list(
-                    Rc::clone(&state),
-                    window.clone(),
-                    list_box.clone(),
-                    status.clone(),
-                    spinner.clone(),
-                    scrolled.clone(),
-                    import_btn.clone(),
-                    open_btn.clone(),
-                )
-                .await;
+                refresh_vpn_list(Rc::clone(&state), view.clone()).await;
             }
         }
     });
 
     // Periodic polling fallback.
-    let id = glib::timeout_add_local(
-        std::time::Duration::from_millis(VPN_REFRESH_INTERVAL_MS),
-        {
-            let state = Rc::clone(&state);
-            move || {
-                if !wifi_tab.is_active() || !vpn_tab.is_active() {
-                    state.borrow_mut().vpn_refresh_source = None;
-                    return glib::ControlFlow::Break;
-                }
-
-                glib::spawn_future_local({
-                    let state = Rc::clone(&state);
-                    let list_box = list_box.clone();
-                    let status = status.clone();
-                    let spinner = spinner.clone();
-                    let scrolled = scrolled.clone();
-                    let window = window.clone();
-                    let import_btn = import_btn.clone();
-                    let open_btn = open_btn.clone();
-                    async move {
-                        refresh_vpn_list(state, window, list_box, status, spinner, scrolled, import_btn, open_btn).await;
-                    }
-                });
-                glib::ControlFlow::Continue
+    let id = glib::timeout_add_local(std::time::Duration::from_millis(VPN_REFRESH_INTERVAL_MS), {
+        let state = Rc::clone(&state);
+        let wifi_tab = wifi_tab.clone();
+        let vpn_tab = vpn_tab.clone();
+        move || {
+            if !wifi_tab.is_active()
+                || !vpn_tab.is_active()
+                || !is_current_vpn_view(&state, view_token)
+            {
+                state.borrow_mut().vpn_refresh_source = None;
+                return glib::ControlFlow::Break;
             }
-        },
-    );
+
+            glib::spawn_future_local({
+                let state = Rc::clone(&state);
+                let view = view.clone();
+                async move {
+                    refresh_vpn_list(state, view).await;
+                }
+            });
+            glib::ControlFlow::Continue
+        }
+    });
 
     state.borrow_mut().vpn_refresh_source = Some(id);
     log::info!("VPN refresh loop started (interval: {} ms)", VPN_REFRESH_INTERVAL_MS);
@@ -268,16 +289,15 @@ pub(super) fn stop_vpn_refresh(state: &Rc<RefCell<AppState>>) {
     }
 }
 
-pub(super) async fn refresh_vpn_list(
-    state: Rc<RefCell<AppState>>,
-    window: gtk4::ApplicationWindow,
-    list_box: gtk4::ListBox,
-    status: gtk4::Label,
-    spinner: gtk4::Spinner,
-    scrolled: gtk4::ScrolledWindow,
-    import_btn: gtk4::Button,
-    open_btn: gtk4::Button,
-) {
+pub(super) async fn refresh_vpn_list(state: Rc<RefCell<AppState>>, view: VpnView) {
+    let view_token = {
+        let st = state.borrow();
+        if !st.vpn_view_active {
+            return;
+        }
+        st.vpn_view_generation
+    };
+    let VpnView { window, list_box, status, spinner, scrolled, import_btn, open_btn } = view;
     begin_vpn_work(&state, &import_btn, &open_btn);
     let vpn = state.borrow().vpn.clone();
 
@@ -285,22 +305,41 @@ pub(super) async fn refresh_vpn_list(
         Ok(p) => p,
         Err(e) => {
             log::warn!("Failed to list VPN profiles: {e}");
-            status.set_text("Failed to load VPN profiles");
-            spinner.set_spinning(false);
-            spinner.set_visible(false);
-            scrolled.set_visible(true);
+            if is_current_vpn_view(&state, view_token) {
+                status.set_text("Failed to load VPN profiles");
+                spinner.set_spinning(false);
+                spinner.set_visible(false);
+                scrolled.set_visible(true);
+            }
             end_vpn_work(&state, &import_btn, &open_btn);
             return;
         }
     };
 
+    if !is_current_vpn_view(&state, view_token) {
+        end_vpn_work(&state, &import_btn, &open_btn);
+        return;
+    }
+
     let active_by_conn = match vpn.active_by_connection_path().await {
         Ok(m) => m,
         Err(e) => {
             log::warn!("Failed to get active VPN state: {e}");
-            std::collections::HashMap::new()
+            if is_current_vpn_view(&state, view_token) {
+                status.set_text("Failed to load VPN status");
+                spinner.set_spinning(false);
+                spinner.set_visible(false);
+                scrolled.set_visible(true);
+            }
+            end_vpn_work(&state, &import_btn, &open_btn);
+            return;
         }
     };
+
+    if !is_current_vpn_view(&state, view_token) {
+        end_vpn_work(&state, &import_btn, &open_btn);
+        return;
+    }
 
     {
         let mut st = state.borrow_mut();
@@ -313,29 +352,56 @@ pub(super) async fn refresh_vpn_list(
                 return false;
             }
             if let Some(active) = active_by_conn.get(conn_path) {
-                active.state == 1 || active.state == 3
+                active.is_connecting() || active.is_disconnecting()
             } else {
                 false
             }
         });
     }
 
-    enforce_single_active_vpn(&state, &status, &active_by_conn).await;
+    if !is_current_vpn_view(&state, view_token) {
+        end_vpn_work(&state, &import_btn, &open_btn);
+        return;
+    }
+
+    enforce_single_active_vpn(&state, &status, &active_by_conn, view_token).await;
+    if !is_current_vpn_view(&state, view_token) {
+        end_vpn_work(&state, &import_btn, &open_btn);
+        return;
+    }
+
     update_vpn_header_status(&status, &profiles, &active_by_conn);
+
+    let action_view = VpnView {
+        window: window.clone(),
+        list_box: list_box.clone(),
+        status: status.clone(),
+        spinner: spinner.clone(),
+        scrolled: scrolled.clone(),
+        import_btn: import_btn.clone(),
+        open_btn: open_btn.clone(),
+    };
 
     let on_toggle: Rc<dyn Fn(String, bool)> = {
         let state = Rc::clone(&state);
         let status = status.clone();
         let import_btn = import_btn.clone();
         let open_btn = open_btn.clone();
+        let action_view = action_view.clone();
         Rc::new(move |conn_path: String, enabled: bool| {
             let state = Rc::clone(&state);
             let status = status.clone();
             let import_btn = import_btn.clone();
             let open_btn = open_btn.clone();
+            let action_view = action_view.clone();
             glib::spawn_future_local(async move {
+                if !is_current_vpn_view(&state, view_token) {
+                    return;
+                }
+
                 let vpn = state.borrow().vpn.clone();
                 begin_vpn_work(&state, &import_btn, &open_btn);
+                let mut operation_succeeded = true;
 
                 if enabled {
                     let blocking_active_path = {
@@ -353,41 +419,50 @@ pub(super) async fn refresh_vpn_list(
                             },
                         );
                     }
-                    status.set_text("Switching VPN...");
+                    set_vpn_status(&state, &status, view_token, "Switching VPN...");
 
-                    if let Some(active_path) = blocking_active_path {
-                        if let Err(e) = vpn.disconnect(&active_path).await {
-                            log::error!("VPN switch disconnect failed: {e}");
-                            status.set_text(&format!(
-                                "VPN switch failed: {}",
-                                humanize_vpn_error(&e.to_string())
-                            ));
-                            state.borrow_mut().vpn_pending.remove(&conn_path);
-                            end_vpn_work(&state, &import_btn, &open_btn);
-                            return;
-                        }
+                    if let Some(active_path) = blocking_active_path
+                        && let Err(e) = vpn.disconnect(&active_path).await
+                    {
+                        log::error!("VPN switch disconnect failed: {e}");
+                        set_vpn_status(
+                            &state,
+                            &status,
+                            view_token,
+                            &format!("VPN switch failed: {}", humanize_vpn_error(&e.to_string())),
+                        );
+                        state.borrow_mut().vpn_pending.remove(&conn_path);
+                        end_vpn_work(&state, &import_btn, &open_btn);
+                        return;
                     }
 
                     match vpn.connect(&conn_path).await {
                         Ok(_) => {}
                         Err(e) => {
                             log::error!("VPN connect failed: {e}");
-                            status.set_text(&format!(
-                                "VPN connect failed: {}",
-                                humanize_vpn_error(&e.to_string())
-                            ));
+                            set_vpn_status(
+                                &state,
+                                &status,
+                                view_token,
+                                &format!(
+                                    "VPN connect failed: {}",
+                                    humanize_vpn_error(&e.to_string())
+                                ),
+                            );
                             state.borrow_mut().vpn_pending.remove(&conn_path);
+                            operation_succeeded = false;
                         }
                     }
                 } else {
                     let active_path = {
                         let st = state.borrow();
-                        st.vpn_active_by_conn
-                            .get(&conn_path)
-                            .map(|a| a.active_path.clone())
+                        st.vpn_active_by_conn.get(&conn_path).map(|a| a.active_path.clone())
                     };
 
                     let Some(active_path) = active_path else {
+                        if is_current_vpn_view(&state, view_token) {
+                            refresh_vpn_list(Rc::clone(&state), action_view.clone()).await;
+                        }
                         end_vpn_work(&state, &import_btn, &open_btn);
                         return;
                     };
@@ -406,13 +481,23 @@ pub(super) async fn refresh_vpn_list(
                         Ok(_) => {}
                         Err(e) => {
                             log::error!("VPN disconnect failed: {e}");
-                            status.set_text(&format!(
-                                "VPN disconnect failed: {}",
-                                humanize_vpn_error(&e.to_string())
-                            ));
+                            set_vpn_status(
+                                &state,
+                                &status,
+                                view_token,
+                                &format!(
+                                    "VPN disconnect failed: {}",
+                                    humanize_vpn_error(&e.to_string())
+                                ),
+                            );
                             state.borrow_mut().vpn_pending.remove(&conn_path);
+                            operation_succeeded = false;
                         }
                     }
+                }
+
+                if operation_succeeded && is_current_vpn_view(&state, view_token) {
+                    refresh_vpn_list(Rc::clone(&state), action_view).await;
                 }
                 end_vpn_work(&state, &import_btn, &open_btn);
             });
@@ -464,33 +549,33 @@ pub(super) async fn refresh_vpn_list(
                     begin_vpn_work(&state, &import_btn, &open_btn);
                     let active_path = {
                         let st = state.borrow();
-                        st.vpn_active_by_conn
-                            .get(&conn_path)
-                            .map(|a| a.active_path.clone())
+                        st.vpn_active_by_conn.get(&conn_path).map(|a| a.active_path.clone())
                     };
-                    if let Some(active_path) = active_path {
-                        if let Err(e) = vpn.disconnect(&active_path).await {
-                            status.set_text(&format!(
-                                "Failed to disconnect {}: {}",
-                                name,
-                                humanize_vpn_error(&e.to_string())
-                            ));
-                            end_vpn_work(&state, &import_btn, &open_btn);
-                            return;
-                        }
+                    if let Some(active_path) = active_path
+                        && let Err(e) = vpn.disconnect(&active_path).await
+                    {
+                        status.set_text(&format!(
+                            "Failed to disconnect {}: {}",
+                            name,
+                            humanize_vpn_error(&e.to_string())
+                        ));
+                        end_vpn_work(&state, &import_btn, &open_btn);
+                        return;
                     }
                     match vpn.delete_profile(&conn_path).await {
                         Ok(_) => {
                             status.set_text(&format!("Deleted {}", name));
                             refresh_vpn_list(
                                 Rc::clone(&state),
-                                window,
-                                list_box,
-                                status.clone(),
-                                spinner,
-                                scrolled,
-                                import_btn.clone(),
-                                open_btn.clone(),
+                                VpnView {
+                                    window,
+                                    list_box,
+                                    status: status.clone(),
+                                    spinner,
+                                    scrolled,
+                                    import_btn: import_btn.clone(),
+                                    open_btn: open_btn.clone(),
+                                },
                             )
                             .await;
                         }
@@ -524,9 +609,11 @@ pub(super) async fn refresh_vpn_list(
         on_delete,
     );
 
-    spinner.set_spinning(false);
-    spinner.set_visible(false);
-    scrolled.set_visible(true);
+    if is_current_vpn_view(&state, view_token) {
+        spinner.set_spinning(false);
+        spinner.set_visible(false);
+        scrolled.set_visible(true);
+    }
     end_vpn_work(&state, &import_btn, &open_btn);
 }
 
@@ -541,11 +628,7 @@ fn begin_vpn_work(
     update_vpn_action_buttons(state, import_btn, open_btn);
 }
 
-fn end_vpn_work(
-    state: &Rc<RefCell<AppState>>,
-    import_btn: &gtk4::Button,
-    open_btn: &gtk4::Button,
-) {
+fn end_vpn_work(state: &Rc<RefCell<AppState>>, import_btn: &gtk4::Button, open_btn: &gtk4::Button) {
     let mut st = state.borrow_mut();
     st.vpn_busy_count = st.vpn_busy_count.saturating_sub(1);
     drop(st);
@@ -565,14 +648,18 @@ pub(super) fn update_vpn_action_buttons(
 async fn enforce_single_active_vpn(
     state: &Rc<RefCell<AppState>>,
     status: &gtk4::Label,
-    active_by_conn: &std::collections::HashMap<String, crate::dbus::vpn_manager::VpnActive>,
+    active_by_conn: &std::collections::HashMap<String, crate::domain::vpn::VpnActive>,
+    view_token: u64,
 ) {
     let mut connected: Vec<(String, String)> = active_by_conn
         .iter()
-        .filter(|(_, v)| v.state == 2)
+        .filter(|(_, v)| v.is_connected())
         .map(|(conn_path, active)| (conn_path.clone(), active.active_path.clone()))
         .collect();
-    if connected.len() <= 1 || state.borrow().vpn_normalizing {
+    if connected.len() <= 1
+        || state.borrow().vpn_normalizing
+        || !is_current_vpn_view(state, view_token)
+    {
         return;
     }
 
@@ -587,14 +674,21 @@ async fn enforce_single_active_vpn(
     state.borrow_mut().vpn_normalizing = true;
     let vpn = state.borrow().vpn.clone();
     for active_path in disconnect_paths {
+        if !is_current_vpn_view(state, view_token) {
+            break;
+        }
         if let Err(e) = vpn.disconnect(&active_path).await {
             log::warn!("VPN normalization disconnect failed: {e}");
-            status.set_text(&format!(
-                "VPN normalize failed: {}",
-                humanize_vpn_error(&e.to_string())
-            ));
+            set_vpn_status(
+                state,
+                status,
+                view_token,
+                &format!("VPN normalize failed: {}", humanize_vpn_error(&e.to_string())),
+            );
         }
     }
-    status.set_text("Multiple VPNs detected; normalized to one active profile");
+    if is_current_vpn_view(state, view_token) {
+        status.set_text("Multiple VPNs detected; normalized to one active profile");
+    }
     state.borrow_mut().vpn_normalizing = false;
 }

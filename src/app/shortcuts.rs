@@ -5,14 +5,15 @@ use std::rc::Rc;
 
 use gtk4::glib;
 
+use crate::config::Config;
 use crate::ui::window::PanelWidgets;
 
 use super::{AppState, refresh_list};
 
 /// Set up Escape key handler to hide panel (with proper state tracking).
 pub(super) fn setup_escape_key(widgets: &PanelWidgets, panel_state: crate::daemon::PanelState) {
-    use gtk4::{gdk, glib, prelude::*, EventControllerKey};
-    
+    use gtk4::{EventControllerKey, gdk, glib, prelude::*};
+
     let key_controller = EventControllerKey::new();
     key_controller.connect_key_pressed(move |_, key, _, _| {
         if key == gdk::Key::Escape {
@@ -32,6 +33,8 @@ pub(super) fn setup_reload_on_request(
 ) {
     let list_box = widgets.network_list_box.clone();
     let status = widgets.status_label.clone();
+    let window = widgets.window.clone();
+    let controls = widgets.controls.clone();
 
     glib::timeout_add_local(std::time::Duration::from_millis(200), move || {
         if reload_requested.swap(false, std::sync::atomic::Ordering::Relaxed) {
@@ -39,11 +42,15 @@ pub(super) fn setup_reload_on_request(
             let state = Rc::clone(&state);
             let list_box = list_box.clone();
             let status = status.clone();
+            let window = window.clone();
+            let controls = controls.clone();
 
             glib::spawn_future_local(async move {
                 // Reload CSS
                 crate::ui::window::reload_css();
-                // Refresh network list (which will reload config for icons)
+                // Reapply placement and configurable control glyphs.
+                crate::ui::window::apply_runtime_config(&window, &controls, &Config::load());
+                // Refresh network list (which also reloads network icons).
                 refresh_list(&state, &list_box, &status).await;
             });
         }

@@ -1,4 +1,4 @@
-pub mod brightness;
-pub mod volume;
-pub mod night_mode;
-pub mod power;
+pub(crate) mod brightness;
+pub(crate) mod night_mode;
+pub(crate) mod power;
+pub(crate) mod volume;

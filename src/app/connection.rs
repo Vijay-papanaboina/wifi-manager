@@ -6,7 +6,7 @@ use std::rc::Rc;
 use gtk4::glib;
 use gtk4::prelude::*;
 
-use crate::dbus::access_point::SecurityType;
+use crate::domain::network::SecurityType;
 use crate::ui::network_list;
 use crate::ui::window::PanelWidgets;
 
@@ -18,57 +18,52 @@ pub(super) fn setup_wifi_toggle(widgets: &PanelWidgets, state: Rc<RefCell<AppSta
     let status = widgets.status_label.clone();
     let wifi_tab = widgets.wifi_tab.clone();
 
-    widgets
-        .wifi_switch
-        .connect_state_set(move |_switch, enabled| {
-            // Only handle WiFi toggle when WiFi tab is active
-            if !wifi_tab.is_active() {
-                return glib::Propagation::Proceed;
-            }
+    widgets.wifi_switch.connect_state_set(move |_switch, enabled| {
+        // Only handle WiFi toggle when WiFi tab is active
+        if !wifi_tab.is_active() {
+            return glib::Propagation::Proceed;
+        }
 
-            let state = Rc::clone(&state);
-            let list_box = list_box.clone();
-            let status = status.clone();
+        let state = Rc::clone(&state);
+        let list_box = list_box.clone();
+        let status = status.clone();
 
-            glib::spawn_future_local(async move {
-                let wifi = get_wifi(&state);
-                let result = wifi.set_wifi_enabled(enabled).await;
+        glib::spawn_future_local(async move {
+            let wifi = get_wifi(&state);
+            let result = wifi.set_wifi_enabled(enabled).await;
 
-                match result {
-                    Ok(_) => {
-                        if enabled {
-                            status.set_text("WiFi enabled");
-                            glib::timeout_future(std::time::Duration::from_millis(2000)).await;
-                            let _ = wifi.request_scan().await;
-                            glib::timeout_future(std::time::Duration::from_millis(1500)).await;
-                            refresh_list(&state, &list_box, &status).await;
-                        } else {
-                            status.set_text("WiFi disabled");
-                            let config = crate::config::Config::load();
-                            let wifi = get_wifi(&state);
-                            let empty_pending = std::collections::HashMap::new();
-                            let on_forget = std::rc::Rc::new(|_ssid: String| {});
-                            let row_ssids = network_list::populate_network_list(
-                                &list_box,
-                                &[],
-                                &config,
-                                &wifi,
-                                &status,
-                                &empty_pending,
-                                on_forget,
-                            );
-                            state.borrow_mut().wifi_row_ssids = row_ssids;
-                        }
-                    }
-                    Err(e) => {
-                        log::error!("WiFi toggle failed: {e}");
-                        status.set_text("Toggle failed");
+            match result {
+                Ok(_) => {
+                    if enabled {
+                        status.set_text("WiFi enabled");
+                        glib::timeout_future(std::time::Duration::from_millis(2000)).await;
+                        let _ = wifi.request_scan().await;
+                        glib::timeout_future(std::time::Duration::from_millis(1500)).await;
+                        refresh_list(&state, &list_box, &status).await;
+                    } else {
+                        status.set_text("WiFi disabled");
+                        let config = crate::config::Config::load();
+                        let empty_pending = std::collections::HashMap::new();
+                        let on_forget = std::rc::Rc::new(|_ssid: String| {});
+                        let row_ssids = network_list::populate_network_list(
+                            &list_box,
+                            &[],
+                            &config,
+                            &empty_pending,
+                            on_forget,
+                        );
+                        state.borrow_mut().wifi_row_ssids = row_ssids;
                     }
                 }
-            });
-
-            glib::Propagation::Proceed
+                Err(e) => {
+                    log::error!("WiFi toggle failed: {e}");
+                    status.set_text("Toggle failed");
+                }
+            }
         });
+
+        glib::Propagation::Proceed
+    });
 }
 
 /// Wire network row clicks to connect or show password dialog.
@@ -79,127 +74,119 @@ pub(super) fn setup_network_click(widgets: &PanelWidgets, state: Rc<RefCell<AppS
     let list_box = widgets.network_list_box.clone();
     let status = widgets.status_label.clone();
 
-    widgets
-        .network_list_box
-        .connect_row_activated(move |_list, row| {
-            let index = row.index() as usize;
-            let state = Rc::clone(&state);
-            let revealer = revealer.clone();
-            let entry = entry.clone();
-            let error_label = error_label.clone();
-            let list_box = list_box.clone();
-            let status = status.clone();
+    widgets.network_list_box.connect_row_activated(move |_list, row| {
+        let index = row.index() as usize;
+        let state = Rc::clone(&state);
+        let revealer = revealer.clone();
+        let entry = entry.clone();
+        let error_label = error_label.clone();
+        let list_box = list_box.clone();
+        let status = status.clone();
 
-            glib::spawn_future_local(async move {
-                let network = {
-                    let st = state.borrow();
-                    let ssid = st
-                        .wifi_row_ssids
-                        .get(index)
-                        .and_then(|v| v.clone());
-                    ssid.and_then(|ssid| {
-                        st.networks.iter().find(|n| n.ssid == ssid).cloned()
-                    })
-                };
+        glib::spawn_future_local(async move {
+            let network = {
+                let st = state.borrow();
+                let ssid = st.wifi_row_ssids.get(index).and_then(|v| v.clone());
+                ssid.and_then(|ssid| st.networks.iter().find(|n| n.ssid == ssid).cloned())
+            };
 
-                let Some(network) = network else {
-                    return;
-                };
+            let Some(network) = network else {
+                return;
+            };
 
-                let wifi = get_wifi(&state);
+            let wifi = get_wifi(&state);
 
-                let set_pending = |state: &Rc<RefCell<AppState>>,
-                                   status: &gtk4::Label,
-                                   list_box: &gtk4::ListBox,
-                                   ssid: &str,
-                                   pending_label: &str,
-                                   status_prefix: &str| {
-                    {
-                        let mut st = state.borrow_mut();
-                        st.wifi_pending
-                            .insert(ssid.to_string(), pending_label.to_string());
-                    }
-                    status.set_text(&format!("{} {}...", status_prefix, ssid));
-                    glib::spawn_future_local({
-                        let state = Rc::clone(state);
-                        let list_box = list_box.clone();
-                        let status = status.clone();
-                        async move {
-                            refresh_list(&state, &list_box, &status).await;
-                        }
-                    });
-                };
-
-                let clear_pending = |state: &Rc<RefCell<AppState>>,
-                                     list_box: &gtk4::ListBox,
-                                     status: &gtk4::Label,
-                                     ssid: &str| {
+            let set_pending = |state: &Rc<RefCell<AppState>>,
+                               status: &gtk4::Label,
+                               list_box: &gtk4::ListBox,
+                               ssid: &str,
+                               pending_label: &str,
+                               status_prefix: &str| {
+                {
                     let mut st = state.borrow_mut();
-                    st.wifi_pending.remove(ssid);
-                    glib::spawn_future_local({
-                        let state = Rc::clone(state);
-                        let list_box = list_box.clone();
-                        let status = status.clone();
-                        async move {
-                            refresh_list(&state, &list_box, &status).await;
-                        }
-                    });
-                };
-
-                if network.is_connected {
-                    // Disconnect
-                    set_pending(
-                        &state,
-                        &status,
-                        &list_box,
-                        &network.ssid,
-                        "Disconnecting",
-                        "Disconnecting from",
-                    );
-                    match wifi.disconnect().await {
-                        Ok(_) => {
-                            glib::timeout_future(std::time::Duration::from_millis(500)).await;
-                            clear_pending(&state, &list_box, &status, &network.ssid);
-                            refresh_list(&state, &list_box, &status).await;
-                        }
-                        Err(e) => {
-                            log::error!("Disconnect failed: {e}");
-                            status.set_text("Disconnect failed");
-                            clear_pending(&state, &list_box, &status, &network.ssid);
-                        }
-                    }
-                } else if network.is_saved || network.security == SecurityType::Open {
-                    // Connect directly (no password needed)
-                    set_pending(
-                        &state,
-                        &status,
-                        &list_box,
-                        &network.ssid,
-                        "Connecting",
-                        "Connecting to",
-                    );
-                    match wifi.connect_to_network(&network, None).await {
-                        Ok(_) => {
-                            glib::timeout_future(std::time::Duration::from_millis(2000)).await;
-                            clear_pending(&state, &list_box, &status, &network.ssid);
-                            refresh_list(&state, &list_box, &status).await;
-                        }
-                        Err(e) => {
-                            log::error!("Connect failed: {e}");
-                            status.set_text(&format!("Failed: {}", e));
-                            clear_pending(&state, &list_box, &status, &network.ssid);
-                        }
-                    }
-                } else {
-                    // Show password dialog
-                    state.borrow_mut().selected_ssid = Some(network.ssid.clone());
-                    error_label.set_visible(false);
-                    entry.set_text("");
-                    revealer.set_reveal_child(true);
-                    entry.grab_focus();
+                    st.wifi_pending.insert(ssid.to_string(), pending_label.to_string());
                 }
-            });
+                status.set_text(&format!("{} {}...", status_prefix, ssid));
+                glib::spawn_future_local({
+                    let state = Rc::clone(state);
+                    let list_box = list_box.clone();
+                    let status = status.clone();
+                    async move {
+                        refresh_list(&state, &list_box, &status).await;
+                    }
+                });
+            };
+
+            let clear_pending = |state: &Rc<RefCell<AppState>>,
+                                 list_box: &gtk4::ListBox,
+                                 status: &gtk4::Label,
+                                 ssid: &str| {
+                let mut st = state.borrow_mut();
+                st.wifi_pending.remove(ssid);
+                glib::spawn_future_local({
+                    let state = Rc::clone(state);
+                    let list_box = list_box.clone();
+                    let status = status.clone();
+                    async move {
+                        refresh_list(&state, &list_box, &status).await;
+                    }
+                });
+            };
+
+            if network.is_connected {
+                // Disconnect
+                set_pending(
+                    &state,
+                    &status,
+                    &list_box,
+                    &network.ssid,
+                    "Disconnecting",
+                    "Disconnecting from",
+                );
+                match wifi.disconnect().await {
+                    Ok(_) => {
+                        glib::timeout_future(std::time::Duration::from_millis(500)).await;
+                        clear_pending(&state, &list_box, &status, &network.ssid);
+                        refresh_list(&state, &list_box, &status).await;
+                    }
+                    Err(e) => {
+                        log::error!("Disconnect failed: {e}");
+                        status.set_text("Disconnect failed");
+                        clear_pending(&state, &list_box, &status, &network.ssid);
+                    }
+                }
+            } else if network.is_saved || network.security == SecurityType::Open {
+                // Connect directly (no password needed)
+                set_pending(
+                    &state,
+                    &status,
+                    &list_box,
+                    &network.ssid,
+                    "Connecting",
+                    "Connecting to",
+                );
+                match wifi.connect_to_network(&network, None).await {
+                    Ok(_) => {
+                        glib::timeout_future(std::time::Duration::from_millis(2000)).await;
+                        clear_pending(&state, &list_box, &status, &network.ssid);
+                        refresh_list(&state, &list_box, &status).await;
+                    }
+                    Err(e) => {
+                        log::error!("Connect failed: {e}");
+                        status.set_text(&format!("Failed: {}", e));
+                        clear_pending(&state, &list_box, &status, &network.ssid);
+                    }
+                }
+            } else {
+                // Show password dialog
+                state.borrow_mut().selected_ssid = Some(network.ssid.clone());
+                error_label.set_visible(false);
+                entry.set_text("");
+                revealer.set_reveal_child(true);
+                entry.grab_focus();
+            }
         });
+    });
 }
 
 /// Wire password dialog connect/cancel buttons and Enter key.
@@ -246,9 +233,10 @@ pub(super) fn setup_password_actions(widgets: &PanelWidgets, state: Rc<RefCell<A
             glib::spawn_future_local(async move {
                 let (network, wifi) = {
                     let st = state.borrow();
-                    let net = st.selected_ssid.as_ref().and_then(|ssid| {
-                        st.networks.iter().find(|n| n.ssid == *ssid).cloned()
-                    });
+                    let net = st
+                        .selected_ssid
+                        .as_ref()
+                        .and_then(|ssid| st.networks.iter().find(|n| n.ssid == *ssid).cloned());
                     (net, st.wifi.clone())
                 };
 
@@ -259,8 +247,7 @@ pub(super) fn setup_password_actions(widgets: &PanelWidgets, state: Rc<RefCell<A
 
                 {
                     let mut st = state.borrow_mut();
-                    st.wifi_pending
-                        .insert(network.ssid.clone(), "Connecting".to_string());
+                    st.wifi_pending.insert(network.ssid.clone(), "Connecting".to_string());
                 }
                 status.set_text(&format!("Connecting to {}...", network.ssid));
                 refresh_list(&state, &list_box, &status).await;

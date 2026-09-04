@@ -10,7 +10,7 @@ use gtk4::{
 ///
 /// Returns `(revealer, password_entry, connect_button, cancel_button, error_label)`.
 /// The revealer wraps the section — show/hide by calling `revealer.set_reveal_child()`.
-pub fn build_password_section() -> (Revealer, Entry, Button, Button, Label) {
+pub(crate) fn build_password_section() -> (Revealer, Entry, Button, Button, Label) {
     let revealer = Revealer::new();
     revealer.add_css_class("password-revealer");
     revealer.set_transition_type(RevealerTransitionType::SlideDown);
@@ -42,9 +42,8 @@ pub fn build_password_section() -> (Revealer, Entry, Button, Button, Label) {
     // Toggle password visibility when icon is clicked
     entry.connect_icon_release(|entry, _pos| {
         // Check current state by looking at the icon name
-        let is_hidden = entry
-            .secondary_icon_name()
-            .is_none_or(|name| name == "view-reveal-symbolic");
+        let is_hidden =
+            entry.secondary_icon_name().is_none_or(|name| name == "view-reveal-symbolic");
         entry.set_visibility(is_hidden);
         if is_hidden {
             entry.set_secondary_icon_name(Some("view-conceal-symbolic"));

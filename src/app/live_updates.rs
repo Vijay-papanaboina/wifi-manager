@@ -43,13 +43,16 @@ pub(super) fn setup_live_updates(
             // Build a DeviceProxy for the WiFi device
             let device_proxy = match crate::dbus::proxies::DeviceProxy::builder(conn)
                 .path(device_path.to_owned())
-                .unwrap()
-                .build()
-                .await
             {
-                Ok(p) => p,
-                Err(e) => {
-                    log::error!("Failed to create device proxy for live updates: {e}");
+                Ok(builder) => match builder.build().await {
+                    Ok(proxy) => proxy,
+                    Err(error) => {
+                        log::error!("Failed to create device proxy for live updates: {error}");
+                        return;
+                    }
+                },
+                Err(error) => {
+                    log::error!("Invalid Wi-Fi device path for live updates: {error}");
                     return;
                 }
             };
@@ -93,7 +96,9 @@ pub(super) fn setup_live_updates(
                 } else if (new_state == 30 || new_state == 20) && is_hidden {
                     // Disconnected while panel is hidden — start the loop.
                     super::scanning::start_wifi_bg_reconnect(Rc::clone(&state));
-                    log::info!("StateChanged: disconnected while hidden — bg reconnect loop started");
+                    log::info!(
+                        "StateChanged: disconnected while hidden — bg reconnect loop started"
+                    );
                 }
 
                 // Update WiFi switch state
@@ -128,13 +133,16 @@ pub(super) fn setup_live_updates(
 
             let wireless_proxy = match crate::dbus::proxies::WirelessProxy::builder(conn)
                 .path(device_path.to_owned())
-                .unwrap()
-                .build()
-                .await
             {
-                Ok(p) => p,
-                Err(e) => {
-                    log::error!("Failed to create wireless proxy for live updates: {e}");
+                Ok(builder) => match builder.build().await {
+                    Ok(proxy) => proxy,
+                    Err(error) => {
+                        log::error!("Failed to create wireless proxy for live updates: {error}");
+                        return;
+                    }
+                },
+                Err(error) => {
+                    log::error!("Invalid Wi-Fi device path for live updates: {error}");
                     return;
                 }
             };
@@ -156,7 +164,9 @@ pub(super) fn setup_live_updates(
             };
 
             if ap_added.is_none() && ap_removed.is_none() {
-                log::error!("Live updates: failed to subscribe to AccessPointAdded/Removed signals");
+                log::error!(
+                    "Live updates: failed to subscribe to AccessPointAdded/Removed signals"
+                );
                 return;
             }
 

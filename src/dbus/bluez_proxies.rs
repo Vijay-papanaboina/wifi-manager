@@ -8,6 +8,9 @@ use std::collections::HashMap;
 use zbus::proxy;
 use zbus::zvariant::{OwnedObjectPath, OwnedValue};
 
+pub(crate) type ManagedObjects =
+    HashMap<OwnedObjectPath, HashMap<String, HashMap<String, OwnedValue>>>;
+
 // ============================================================================
 // D-Bus Proxy Traits for BlueZ
 // ============================================================================
@@ -16,10 +19,7 @@ use zbus::zvariant::{OwnedObjectPath, OwnedValue};
 ///
 /// Represents a Bluetooth adapter (e.g. hci0).
 /// Controls power state and device discovery.
-#[proxy(
-    interface = "org.bluez.Adapter1",
-    default_service = "org.bluez"
-)]
+#[proxy(interface = "org.bluez.Adapter1", default_service = "org.bluez")]
 pub(crate) trait Adapter1 {
     /// Start scanning for nearby Bluetooth devices.
     fn start_discovery(&self) -> zbus::Result<()>;
@@ -28,10 +28,7 @@ pub(crate) trait Adapter1 {
     fn stop_discovery(&self) -> zbus::Result<()>;
 
     /// Remove a paired/discovered device from the adapter.
-    fn remove_device(
-        &self,
-        device: &zbus::zvariant::ObjectPath<'_>,
-    ) -> zbus::Result<()>;
+    fn remove_device(&self, device: &zbus::zvariant::ObjectPath<'_>) -> zbus::Result<()>;
 
     /// Whether the adapter is powered on.
     #[zbus(property)]
@@ -57,10 +54,7 @@ pub(crate) trait Adapter1 {
 /// Proxy for org.bluez.Device1
 ///
 /// Represents a remote Bluetooth device (discovered or paired).
-#[proxy(
-    interface = "org.bluez.Device1",
-    default_service = "org.bluez"
-)]
+#[proxy(interface = "org.bluez.Device1", default_service = "org.bluez")]
 pub(crate) trait Device1 {
     /// Connect to all auto-connectable profiles on this device.
     fn connect(&self) -> zbus::Result<()>;
@@ -136,14 +130,7 @@ pub(crate) trait BluezObjectManager {
     /// Get all managed objects with their interfaces and properties.
     ///
     /// Returns: `{ object_path: { interface_name: { property: value } } }`
-    fn get_managed_objects(
-        &self,
-    ) -> zbus::Result<
-        HashMap<
-            OwnedObjectPath,
-            HashMap<String, HashMap<String, OwnedValue>>,
-        >,
-    >;
+    fn get_managed_objects(&self) -> zbus::Result<ManagedObjects>;
 
     /// Signal: new interfaces appeared on an object.
     #[zbus(signal)]

@@ -145,7 +145,7 @@ cargo run
 - [NetworkManager](https://networkmanager.dev/) as the system network service
 - [BlueZ](http://www.bluez.org/) for Bluetooth support (optional)
 - GTK4 and gtk4-layer-shell libraries
-- Rust toolchain (1.85+)
+- Rust toolchain (1.92+)
 
 **System Dependencies:**
 
@@ -303,11 +303,21 @@ Your CSS overrides the default theme. For a complete list of available classes a
 
 ```
 src/
-├── main.rs                  # Entry point, CLI parsing, GTK application setup
+├── main.rs                  # Thin process entry point and CLI parsing
+├── lib.rs                   # Crate boundary and public launcher API
+├── bootstrap.rs             # GTK/D-Bus startup and graceful shutdown wiring
 ├── config.rs                # Configuration loader (TOML)
-├── daemon.rs                # D-Bus daemon service (Toggle/Show/Hide)
+├── state.rs                 # Persisted runtime state (TOML)
+├── daemon.rs                # Session D-Bus daemon service (Toggle/Show/Hide)
+├── error.rs                 # Typed process/control errors
+├── process.rs               # Asynchronous subprocess boundary
+├── domain/                  # Pure models and deterministic classification rules
+│   ├── network.rs           # Network, SecurityType, Band
+│   ├── bluetooth.rs         # BluetoothDevice and DeviceCategory
+│   └── vpn.rs               # VPN profile and active-state models
 ├── app/
-│   ├── mod.rs               # App state and setup (WiFi + Bluetooth)
+│   ├── mod.rs               # Application composition and event dispatch
+│   ├── state.rs              # GTK-thread mutable application state
 │   ├── scanning.rs          # WiFi scan logic and polling
 │   ├── connection.rs        # WiFi toggle, network click, password actions
 │   ├── live_updates.rs      # WiFi D-Bus signal subscriptions
@@ -324,11 +334,10 @@ src/
 ├── dbus/
 │   ├── proxies.rs           # NetworkManager D-Bus proxy traits (zbus)
 │   ├── network_manager.rs   # High-level WiFi operations
-│   ├── access_point.rs      # WiFi data model (Network, SecurityType, Band)
 │   ├── connection.rs        # NM connection settings builders
 │   ├── bluez_proxies.rs     # BlueZ D-Bus proxy traits (Adapter1, Device1)
 │   ├── bluetooth_manager.rs # High-level Bluetooth operations
-│   └── bluetooth_device.rs  # Bluetooth data model (BluetoothDevice, DeviceCategory)
+│   └── vpn_manager.rs       # NetworkManager VPN/WireGuard operations
 └── ui/
     ├── window.rs            # Layer-shell window setup, tab stack
     ├── header.rs            # Header bar with tab switcher
@@ -338,6 +347,22 @@ src/
     ├── device_list.rs       # Bluetooth device list
     ├── device_row.rs        # Bluetooth device row widget
     └── password_dialog.rs   # Inline password entry
+```
+
+The `domain` layer has no GTK, D-Bus, Wayland, or operating-system side
+effects. Backend adapters live under `dbus/` and `controls/`; the application
+controller owns asynchronous work and GTK-thread state; `ui/` is responsible
+for widget composition and presentation. This separation allows pure rules to
+be tested without NetworkManager, BlueZ, or a running Wayland session.
+
+### Development checks
+
+```sh
+cargo fmt --all -- --check
+cargo check --all-targets --all-features
+cargo clippy --all-targets --all-features -- -D warnings
+cargo test --all-targets --all-features
+cargo doc --no-deps --all-features
 ```
 
 ## Tech Stack

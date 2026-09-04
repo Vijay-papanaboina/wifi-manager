@@ -69,10 +69,8 @@ pub(super) fn setup_scan_on_show(
                 if let Err(e) = wifi.request_scan().await {
                     log::warn!("Scan-on-show scan failed: {e}");
                 }
-                glib::timeout_future(std::time::Duration::from_millis(
-                    WIFI_SCAN_RESULT_WAIT_MS,
-                ))
-                .await;
+                glib::timeout_future(std::time::Duration::from_millis(WIFI_SCAN_RESULT_WAIT_MS))
+                    .await;
                 if wifi_tab.is_active() {
                     refresh_list(&state, &list_box, &status).await;
                 }
@@ -137,11 +135,7 @@ pub(super) fn run_manual_scan(
             state,
             list_box,
             status,
-            Some(ManualWifiScanUi {
-                scan_btn,
-                spinner,
-                scrolled,
-            }),
+            Some(ManualWifiScanUi { scan_btn, spinner, scrolled }),
         )
         .await;
     });
@@ -167,9 +161,8 @@ pub(super) fn start_wifi_auto_scan(
         }
     });
 
-    let scan_id = glib::timeout_add_local(
-        std::time::Duration::from_millis(WIFI_AUTO_SCAN_INTERVAL_MS),
-        {
+    let scan_id =
+        glib::timeout_add_local(std::time::Duration::from_millis(WIFI_AUTO_SCAN_INTERVAL_MS), {
             let state = Rc::clone(&state);
             let list_box = list_box.clone();
             let status = status.clone();
@@ -189,8 +182,7 @@ pub(super) fn start_wifi_auto_scan(
                 });
                 glib::ControlFlow::Continue
             }
-        },
-    );
+        });
 
     state.borrow_mut().wifi_auto_scan_source = Some(scan_id);
     log::info!("Fast UI Wi-Fi scan loop started (interval: 15 s)");
@@ -230,9 +222,8 @@ pub(super) fn start_wifi_bg_reconnect(state: Rc<RefCell<AppState>>) {
     });
 
     // Then repeat every 60 s until the timer is removed.
-    let scan_id = glib::timeout_add_local(
-        std::time::Duration::from_millis(WIFI_BG_RECONNECT_INTERVAL_MS),
-        {
+    let scan_id =
+        glib::timeout_add_local(std::time::Duration::from_millis(WIFI_BG_RECONNECT_INTERVAL_MS), {
             let state = Rc::clone(&state);
             move || {
                 // If the source was cleared externally, stop the timer.
@@ -250,8 +241,7 @@ pub(super) fn start_wifi_bg_reconnect(state: Rc<RefCell<AppState>>) {
                 });
                 glib::ControlFlow::Continue
             }
-        },
-    );
+        });
 
     state.borrow_mut().wifi_bg_reconnect_source = Some(scan_id);
     log::info!("BG reconnect loop started (interval: 60 s)");

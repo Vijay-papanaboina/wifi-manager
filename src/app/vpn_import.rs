@@ -5,32 +5,29 @@
 
 use std::cell::RefCell;
 use std::collections::HashSet;
-use std::path::Path;
-use std::process::Command;
+use std::ffi::OsString;
+use std::path::PathBuf;
 use std::rc::Rc;
 
 use gtk4::gio;
 use gtk4::glib;
 use gtk4::prelude::*;
 
+use crate::error::{AppError, AppResult};
+use crate::process::{self, CommandOutput};
+
 use super::AppState;
+use super::vpn::VpnView;
 
 /// Open a file-chooser dialog and import the selected `.ovpn`/`.conf` profile.
 pub(super) fn open_import_dialog(
     state: Rc<RefCell<AppState>>,
-    window: gtk4::ApplicationWindow,
-    list_box: gtk4::ListBox,
-    status: gtk4::Label,
-    spinner: gtk4::Spinner,
-    scrolled: gtk4::ScrolledWindow,
-    import_btn: gtk4::Button,
-    open_btn: gtk4::Button,
+    view: VpnView,
     on_done: impl Fn() + 'static,
 ) {
-    let chooser = gtk4::FileDialog::builder()
-        .title("Import VPN Profile")
-        .accept_label("Import")
-        .build();
+    let VpnView { window, list_box, status, spinner, scrolled, import_btn, open_btn } = view;
+    let chooser =
+        gtk4::FileDialog::builder().title("Import VPN Profile").accept_label("Import").build();
 
     let filter = gtk4::FileFilter::new();
     filter.add_pattern("*.ovpn");
@@ -51,18 +48,20 @@ pub(super) fn open_import_dialog(
                     return;
                 };
 
-                match import_vpn_profile(&path) {
+                match import_vpn_profile(path).await {
                     Ok(msg) => {
                         status.set_text(&msg);
                         schedule_post_import_refresh(
                             Rc::clone(&state),
-                            window.clone(),
-                            list_box.clone(),
-                            status.clone(),
-                            spinner.clone(),
-                            scrolled.clone(),
-                            import_btn.clone(),
-                            open_btn.clone(),
+                            VpnView {
+                                window: window.clone(),
+                                list_box: list_box.clone(),
+                                status: status.clone(),
+                                spinner: spinner.clone(),
+                                scrolled: scrolled.clone(),
+                                import_btn: import_btn.clone(),
+                                open_btn: open_btn.clone(),
+                            },
                         );
                     }
                     Err(e) => {
@@ -86,48 +85,17 @@ pub(super) fn open_import_dialog(
 ///
 /// NM may finish activating the connection slightly after `nmcli` returns,
 /// so we poll at 0 ms, 800 ms, 1800 ms, and 3200 ms.
-pub(super) fn schedule_post_import_refresh(
-    state: Rc<RefCell<AppState>>,
-    window: gtk4::ApplicationWindow,
-    list_box: gtk4::ListBox,
-    status: gtk4::Label,
-    spinner: gtk4::Spinner,
-    scrolled: gtk4::ScrolledWindow,
-    import_btn: gtk4::Button,
-    open_btn: gtk4::Button,
-) {
+pub(super) fn schedule_post_import_refresh(state: Rc<RefCell<AppState>>, view: VpnView) {
     let delays_ms = [0_u64, 800, 1800, 3200];
     for delay in delays_ms {
         let state = Rc::clone(&state);
-        let window = window.clone();
-        let list_box = list_box.clone();
-        let status = status.clone();
-        let spinner = spinner.clone();
-        let scrolled = scrolled.clone();
-        let import_btn = import_btn.clone();
-        let open_btn = open_btn.clone();
+        let view = view.clone();
         glib::timeout_add_local(std::time::Duration::from_millis(delay), move || {
             glib::spawn_future_local({
                 let state = Rc::clone(&state);
-                let window = window.clone();
-                let list_box = list_box.clone();
-                let status = status.clone();
-                let spinner = spinner.clone();
-                let scrolled = scrolled.clone();
-                let import_btn = import_btn.clone();
-                let open_btn = open_btn.clone();
+                let view = view.clone();
                 async move {
-                    super::vpn::refresh_vpn_list(
-                        state,
-                        window,
-                        list_box,
-                        status,
-                        spinner,
-                        scrolled,
-                        import_btn,
-                        open_btn,
-                    )
-                        .await;
+                    super::vpn::refresh_vpn_list(state, view).await;
                 }
             });
             glib::ControlFlow::Break
@@ -139,8 +107,8 @@ pub(super) fn schedule_post_import_refresh(
 ///
 /// Disables autoconnect and tears down the connection if NM activated it
 /// immediately — the user controls when to connect.
-fn import_vpn_profile(path: &Path) -> Result<String, String> {
-    let before = list_vpn_profile_uuids()?;
+async fn import_vpn_profile(path: PathBuf) -> AppResult<String> {
+    let before = list_vpn_profile_uuids().await?;
 
     let ext = path
         .extension()
@@ -150,29 +118,28 @@ fn import_vpn_profile(path: &Path) -> Result<String, String> {
     let nm_type = match ext.as_str() {
         "ovpn" => "openvpn",
         "conf" => "wireguard",
-        _ => return Err("unsupported file type (use .ovpn or .conf)".to_string()),
+        _ => return Err(AppError::from("unsupported file type (use .ovpn or .conf)")),
     };
 
-    let output = Command::new("nmcli")
-        .arg("connection")
-        .arg("import")
-        .arg("type")
-        .arg(nm_type)
-        .arg("file")
-        .arg(path.as_os_str())
-        .output()
-        .map_err(|e| format!("failed to run nmcli: {e}"))?;
+    let args = [
+        OsString::from("connection"),
+        OsString::from("import"),
+        OsString::from("type"),
+        OsString::from(nm_type),
+        OsString::from("file"),
+        path.as_os_str().to_os_string(),
+    ];
+    let output = process::run("nmcli", args.iter()).await?;
 
-    if output.status.success() {
-        let after = list_vpn_profile_uuids()?;
+    if output.success() {
+        let after = list_vpn_profile_uuids().await?;
         let imported: Vec<String> = after.difference(&before).cloned().collect();
         for uuid in &imported {
-            let _ = run_nmcli(&[
-                "connection", "modify", "uuid", uuid,
-                "connection.autoconnect", "no",
-            ]);
+            run_nmcli(&["connection", "modify", "uuid", uuid, "connection.autoconnect", "no"])
+                .await?
+                .into_success("nmcli")?;
             // Bring down the connection if NM auto-activated it.
-            let _ = run_nmcli(&["connection", "down", "uuid", uuid]);
+            run_nmcli(&["connection", "down", "uuid", uuid]).await?.into_success("nmcli")?;
         }
         if imported.is_empty() {
             Ok("VPN profile imported".to_string())
@@ -180,28 +147,28 @@ fn import_vpn_profile(path: &Path) -> Result<String, String> {
             Ok("VPN profile imported (autoconnect disabled)".to_string())
         }
     } else {
-        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        let stderr = output.stderr.trim().to_string();
         if stderr.is_empty() {
-            Err("nmcli import failed".to_string())
+            Err(AppError::from("nmcli import failed"))
         } else if stderr.contains("already exists")
             || stderr.contains("exists")
             || stderr.contains("duplicate")
         {
-            Err("profile already exists (same name/UUID). Rename it or delete the old profile and retry".to_string())
+            Err(AppError::from(
+                "profile already exists (same name/UUID). Rename it or delete the old profile and retry",
+            ))
         } else {
-            Err(stderr)
+            Err(AppError::from(stderr))
         }
     }
 }
 
 /// Return the set of UUIDs for all VPN/WireGuard profiles known to NM.
-fn list_vpn_profile_uuids() -> Result<HashSet<String>, String> {
-    let output = run_nmcli(&["-t", "-f", "UUID,TYPE", "connection", "show"])?;
-    if !output.status.success() {
-        return Err("failed to list NetworkManager connections".to_string());
-    }
+async fn list_vpn_profile_uuids() -> AppResult<HashSet<String>> {
+    let output =
+        run_nmcli(&["-t", "-f", "UUID,TYPE", "connection", "show"]).await?.into_success("nmcli")?;
     let mut out = HashSet::new();
-    for line in String::from_utf8_lossy(&output.stdout).lines() {
+    for line in output.stdout.lines() {
         let mut parts = line.splitn(2, ':');
         let uuid = parts.next().unwrap_or("").trim();
         let kind = parts.next().unwrap_or("").trim();
@@ -215,10 +182,7 @@ fn list_vpn_profile_uuids() -> Result<HashSet<String>, String> {
     Ok(out)
 }
 
-/// Thin wrapper around `Command::new("nmcli")`.
-fn run_nmcli(args: &[&str]) -> Result<std::process::Output, String> {
-    Command::new("nmcli")
-        .args(args)
-        .output()
-        .map_err(|e| format!("failed to run nmcli: {e}"))
+/// Thin wrapper around the shared asynchronous subprocess adapter.
+async fn run_nmcli(args: &[&str]) -> AppResult<CommandOutput> {
+    process::run("nmcli", args).await
 }

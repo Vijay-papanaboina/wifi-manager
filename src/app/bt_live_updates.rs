@@ -11,9 +11,9 @@ use gtk4::prelude::*;
 use crate::dbus::bluez_proxies::{Adapter1Proxy, BluezObjectManagerProxy};
 use crate::ui::window::PanelWidgets;
 
+use super::AppState;
 use super::bt_helpers::{clear_bt_list, refresh_bt_list};
 use super::bt_scanning::{start_bt_background_tasks, stop_bt_background_tasks};
-use super::AppState;
 
 /// Subscribe to BlueZ ObjectManager signals for live BT updates.
 ///

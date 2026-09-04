@@ -9,17 +9,13 @@ use std::rc::Rc;
 use gtk4::glib;
 use gtk4::prelude::*;
 
-use crate::dbus::bluetooth_device::BluetoothDevice;
 use crate::dbus::bluetooth_manager::BluetoothManager;
+use crate::domain::bluetooth::BluetoothDevice;
 use crate::ui::window::PanelWidgets;
 
 use super::AppState;
-use super::bt_helpers::{
-    clear_bt_list, get_bt, refresh_bt_list,
-};
-use super::bt_scanning::{
-    run_bt_scan_burst, start_bt_background_tasks, ManualBtScanUi,
-};
+use super::bt_helpers::{clear_bt_list, get_bt, refresh_bt_list};
+use super::bt_scanning::{ManualBtScanUi, run_bt_scan_burst, start_bt_background_tasks};
 
 // Re-export scanning entry-points used by mod.rs
 pub(super) use super::bt_scanning::{
@@ -27,6 +23,73 @@ pub(super) use super::bt_scanning::{
 };
 
 const BT_MANUAL_SCAN_WINDOW_MS: u64 = 5000;
+
+#[derive(Clone)]
+struct BluetoothView {
+    tab: gtk4::ToggleButton,
+    list_box: gtk4::ListBox,
+    spinner: gtk4::Spinner,
+    scroll: gtk4::ScrolledWindow,
+    status: gtk4::Label,
+    switch: gtk4::Switch,
+    scan_button: gtk4::Button,
+}
+
+/// Refresh Bluetooth after the tab becomes active.
+///
+/// This is also called once after BlueZ initialization. The tab can be
+/// selected before the asynchronous manager lookup completes, in which case
+/// no `toggled` signal is emitted after the handler is installed.
+fn start_bt_view(state: Rc<RefCell<AppState>>, view: BluetoothView) {
+    if !view.tab.is_active() {
+        return;
+    }
+
+    let BluetoothView { tab, list_box, spinner, scroll, status, switch, scan_button } = view;
+
+    glib::spawn_future_local(async move {
+        let bt = match get_bt(&state) {
+            Some(bt) => bt,
+            None => return,
+        };
+
+        let powered = match bt.is_powered().await {
+            Ok(p) => p,
+            Err(e) => {
+                log::error!("Failed to get BT power state: {e}");
+                true
+            }
+        };
+        if !tab.is_active() {
+            return;
+        }
+        switch.set_active(powered);
+
+        if !powered {
+            status.set_text("Bluetooth disabled");
+            spinner.set_visible(false);
+            spinner.set_spinning(false);
+            scroll.set_visible(true);
+            stop_bt_background_tasks(&state);
+            clear_bt_list(&state, &list_box, &status, "Bluetooth disabled");
+            return;
+        }
+
+        spinner.set_visible(false);
+        spinner.set_spinning(false);
+        scroll.set_visible(true);
+
+        refresh_bt_list(&state, &list_box, &status).await;
+        if tab.is_active() {
+            start_bt_background_tasks(state, tab, list_box, status);
+        } else {
+            // A tab switch may happen while the initial D-Bus refresh is in
+            // flight. Stop any tasks that were started by an earlier view.
+            stop_bt_background_tasks(&state);
+        }
+        scan_button.set_sensitive(true);
+    });
+}
 
 /// Set up all Bluetooth UI event handlers.
 ///
@@ -72,10 +135,10 @@ pub(super) fn setup_bluetooth(widgets: &PanelWidgets, state: Rc<RefCell<AppState
                     let state = Rc::clone(&state);
                     let btn = btn.clone();
                     glib::spawn_future_local(async move {
-                        if !btn.is_active() {
-                            if let Some(bt) = get_bt(&state) {
-                                let _ = bt.stop_discovery().await;
-                            }
+                        if !btn.is_active()
+                            && let Some(bt) = get_bt(&state)
+                        {
+                            let _ = bt.stop_discovery().await;
                         }
                     });
                     return;
@@ -85,50 +148,40 @@ pub(super) fn setup_bluetooth(widgets: &PanelWidgets, state: Rc<RefCell<AppState
                 scan_btn.set_tooltip_text(Some("Scan for devices"));
                 switch.set_tooltip_text(Some("Enable/Disable Bluetooth"));
 
-                let state = Rc::clone(&state);
-                let bt_list_box = bt_list_box.clone();
-                let bt_spinner = bt_spinner.clone();
-                let bt_scroll = bt_scroll.clone();
-                let status = status.clone();
-                let switch = switch.clone();
-                let state_for_bg = Rc::clone(&state);
-                let bt_tab_for_bg = btn.clone();
-
-                glib::spawn_future_local(async move {
-                    let bt = match get_bt(&state) {
-                        Some(bt) => bt,
-                        None => return,
-                    };
-
-                    let powered = match bt.is_powered().await {
-                        Ok(p) => p,
-                        Err(e) => {
-                            log::error!("Failed to get BT power state: {e}");
-                            true
-                        }
-                    };
-                    if bt_tab_for_bg.is_active() {
-                        switch.set_active(powered);
-                    }
-
-                    if !powered {
-                        status.set_text("Bluetooth disabled");
-                        bt_spinner.set_visible(false);
-                        bt_spinner.set_spinning(false);
-                        bt_scroll.set_visible(true);
-                        stop_bt_background_tasks(&state);
-                        clear_bt_list(&state, &bt_list_box, &status, "Bluetooth disabled");
-                        return;
-                    }
-
-                    bt_spinner.set_visible(false);
-                    bt_spinner.set_spinning(false);
-                    bt_scroll.set_visible(true);
-
-                    refresh_bt_list(&state, &bt_list_box, &status).await;
-                    start_bt_background_tasks(state_for_bg, bt_tab_for_bg, bt_list_box, status);
-                });
+                start_bt_view(
+                    Rc::clone(&state),
+                    BluetoothView {
+                        tab: btn.clone(),
+                        list_box: bt_list_box.clone(),
+                        spinner: bt_spinner.clone(),
+                        scroll: bt_scroll.clone(),
+                        status: status.clone(),
+                        switch: switch.clone(),
+                        scan_button: scan_btn.clone(),
+                    },
+                );
             });
+        }
+
+        // Bluetooth may have been selected before the manager finished
+        // initializing, so there may be no toggled signal to trigger the
+        // normal activation path above.
+        if bt_tab.is_active() {
+            title.set_text("Bluetooth");
+            scan_btn.set_tooltip_text(Some("Scan for devices"));
+            switch.set_tooltip_text(Some("Enable/Disable Bluetooth"));
+            start_bt_view(
+                Rc::clone(&state),
+                BluetoothView {
+                    tab: bt_tab.clone(),
+                    list_box: bt_list_box.clone(),
+                    spinner: bt_spinner.clone(),
+                    scroll: bt_scroll.clone(),
+                    status: status.clone(),
+                    switch: switch.clone(),
+                    scan_button: scan_btn.clone(),
+                },
+            );
         }
 
         // ── BT power toggle ────────────────────────────────────────────────
@@ -286,10 +339,7 @@ pub(super) fn setup_bluetooth(widgets: &PanelWidgets, state: Rc<RefCell<AppState
                         let st = state.borrow();
                         let dev_path = st.bt_row_paths.get(index).and_then(|v| v.clone());
                         let dev = dev_path.and_then(|path| {
-                            st.bt_devices
-                                .iter()
-                                .find(|d| d.device_path == path)
-                                .cloned()
+                            st.bt_devices.iter().find(|d| d.device_path == path).cloned()
                         });
                         let bt = st.bluetooth.clone();
                         (dev, bt)
@@ -323,8 +373,7 @@ async fn handle_device_row_click(
                        status_prefix: &str| {
         {
             let mut st = state.borrow_mut();
-            st.bt_pending
-                .insert(device.device_path.clone(), pending_label.to_string());
+            st.bt_pending.insert(device.device_path.clone(), pending_label.to_string());
         }
         status.set_text(&format!("{} {}...", status_prefix, device.display_name));
         glib::spawn_future_local({

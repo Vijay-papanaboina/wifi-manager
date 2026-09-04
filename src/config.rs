@@ -6,7 +6,7 @@ use std::path::PathBuf;
 /// Window position on screen.
 #[derive(Debug, Clone, Copy, Default, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
-pub enum Position {
+pub(crate) enum Position {
     #[default]
     Center,
     TopRight,
@@ -19,55 +19,54 @@ pub enum Position {
     CenterLeft,
 }
 
-
 /// Application configuration.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default)]
-pub struct Config {
+pub(crate) struct Config {
     /// Window position (default: "center")
-    pub position: Position,
+    pub(crate) position: Position,
 
     /// Margin from top edge in pixels
-    pub margin_top: i32,
+    pub(crate) margin_top: i32,
 
     /// Margin from right edge in pixels
-    pub margin_right: i32,
+    pub(crate) margin_right: i32,
 
     /// Margin from bottom edge in pixels
-    pub margin_bottom: i32,
+    pub(crate) margin_bottom: i32,
 
     /// Margin from left edge in pixels
-    pub margin_left: i32,
+    pub(crate) margin_left: i32,
 
     /// Custom signal strength icons [weak, fair, good, strong]
-    pub signal_icons: [String; 4],
+    pub(crate) signal_icons: [String; 4],
 
     /// Custom lock icon for secured networks
-    pub lock_icon: String,
+    pub(crate) lock_icon: String,
 
     /// Custom saved icon for saved networks
-    pub saved_icon: String,
+    pub(crate) saved_icon: String,
 
     /// Custom icon for Night Mode enabled
-    pub night_mode_on_icon: String,
+    pub(crate) night_mode_on_icon: String,
 
     /// Custom icon for Night Mode disabled
-    pub night_mode_off_icon: String,
+    pub(crate) night_mode_off_icon: String,
 
     /// Custom icon for logout action
-    pub logout_icon: String,
+    pub(crate) logout_icon: String,
 
     /// Custom icon for reboot action
-    pub reboot_icon: String,
+    pub(crate) reboot_icon: String,
 
     /// Custom icon for suspend / sleep action
-    pub suspend_icon: String,
+    pub(crate) suspend_icon: String,
 
     /// Custom icon for power off action
-    pub poweroff_icon: String,
+    pub(crate) poweroff_icon: String,
 
     /// Whether to show the panel when the daemon starts (default: false)
-    pub show_on_start: bool,
+    pub(crate) show_on_start: bool,
 }
 
 impl Default for Config {
@@ -79,10 +78,10 @@ impl Default for Config {
             margin_bottom: 10,
             margin_left: 10,
             signal_icons: [
-                "󰤟".to_string(),  // weak
-                "󰤢".to_string(),  // fair
-                "󰤥".to_string(),  // good
-                "󰤨".to_string(),  // strong
+                "󰤟".to_string(), // weak
+                "󰤢".to_string(), // fair
+                "󰤥".to_string(), // good
+                "󰤨".to_string(), // strong
             ],
             lock_icon: "󰌾".to_string(),
             saved_icon: "".to_string(),
@@ -100,7 +99,7 @@ impl Default for Config {
 impl Config {
     /// Load config from `~/.config/wifi-manager/config.toml`.
     /// Falls back to defaults if file doesn't exist or has errors.
-    pub fn load() -> Self {
+    pub(crate) fn load() -> Self {
         let Some(path) = config_file_path() else {
             return Self::default();
         };
@@ -132,10 +131,36 @@ impl Config {
 /// Get the config file path: ~/.config/wifi-manager/config.toml
 fn config_file_path() -> Option<PathBuf> {
     let home = std::env::var("HOME").ok()?;
-    Some(
-        PathBuf::from(home)
-            .join(".config")
-            .join("wifi-manager")
-            .join("config.toml"),
-    )
+    Some(PathBuf::from(home).join(".config").join("wifi-manager").join("config.toml"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn defaults_are_stable() {
+        let config = Config::default();
+        assert_eq!(config.position, Position::Center);
+        assert_eq!(config.margin_top, 10);
+        assert_eq!(config.signal_icons.len(), 4);
+        assert!(!config.show_on_start);
+    }
+
+    #[test]
+    fn parses_partial_user_configuration_with_defaults() {
+        let config: Config = toml::from_str(
+            r#"
+                position = "top-right"
+                margin_right = 24
+                show_on_start = true
+            "#,
+        )
+        .expect("valid partial config fixture");
+
+        assert_eq!(config.position, Position::TopRight);
+        assert_eq!(config.margin_right, 24);
+        assert_eq!(config.margin_left, 10);
+        assert!(config.show_on_start);
+    }
 }

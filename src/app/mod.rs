@@ -10,11 +10,13 @@ mod bluetooth;
 mod bt_helpers;
 mod bt_live_updates;
 mod bt_scanning;
+mod commands;
 mod connection;
 mod controls;
 mod live_updates;
 mod scanning;
 mod shortcuts;
+mod state;
 mod vpn;
 mod vpn_import;
 mod vpn_utils;
@@ -22,85 +24,22 @@ mod vpn_utils;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
-use std::time::Instant;
 
 use gtk4::glib;
 use gtk4::prelude::*;
 
-use crate::dbus::access_point::Network;
-use crate::dbus::bluetooth_device::BluetoothDevice;
-use crate::dbus::bluetooth_manager::BluetoothManager;
 use crate::dbus::network_manager::WifiManager;
-use crate::dbus::vpn_manager::{VpnActive, VpnManager};
+use crate::dbus::vpn_manager::VpnManager;
 use crate::ui::network_list;
 use crate::ui::window::PanelWidgets;
 
-/// Shared application state accessible from GTK callbacks.
-#[derive(Clone)]
-struct PendingVpnAction {
-    label: String,
-    started_at: Instant,
-}
-
-struct AppState {
-    wifi: WifiManager,
-    vpn: VpnManager,
-    /// The network list — refreshed on scan.
-    networks: Vec<Network>,
-    /// Index of the currently selected network (for password entry).
-    selected_ssid: Option<String>,
-    /// Bluetooth manager (None if no adapter found).
-    bluetooth: Option<BluetoothManager>,
-    /// Bluetooth device list — refreshed on BT scan.
-    bt_devices: Vec<BluetoothDevice>,
-    /// Row-to-device-path mapping for BT list (None for separators).
-    bt_row_paths: Vec<Option<String>>,
-    /// Pending Bluetooth actions by device path (label).
-    bt_pending: HashMap<String, String>,
-    /// Whether a Bluetooth scan is currently running.
-    bt_scan_in_progress: bool,
-    /// Periodic auto-scan timer for Bluetooth (when BT tab is active).
-    bt_auto_scan_source: Option<glib::SourceId>,
-    /// Periodic refresh timer for Bluetooth list (when BT tab is active).
-    bt_live_refresh_source: Option<glib::SourceId>,
-    /// Whether Bluetooth auto-scan loop is active.
-    bt_auto_scan_active: bool,
-    /// Generation used to invalidate in-flight Bluetooth scans/refreshes when
-    /// the tab is hidden or the adapter is powered off.
-    bt_task_generation: u64,
-    /// Whether a UI-triggered Bluetooth power transition is in flight.
-    /// External power signals defer scan-loop startup until it completes.
-    bt_power_transition_in_progress: bool,
-    /// Whether a Bluetooth device menu is open (avoid refresh to prevent popover closing).
-    bt_menu_open: bool,
-    /// Whether a Wi-Fi scan is currently running.
-    wifi_scan_in_progress: bool,
-    /// Periodic auto-scan timer for Wi-Fi (when Wi-Fi tab is active).
-    wifi_auto_scan_source: Option<glib::SourceId>,
-    /// Background 60-second reconnect scan timer.
-    /// Active only when the panel is hidden AND Wi-Fi is disconnected.
-    wifi_bg_reconnect_source: Option<glib::SourceId>,
-    /// Row-to-SSID mapping for Wi-Fi list (None for separators).
-    wifi_row_ssids: Vec<Option<String>>,
-    /// Pending Wi-Fi actions by SSID.
-    wifi_pending: HashMap<String, String>,
-    /// Pending VPN actions by Settings.Connection path.
-    vpn_pending: HashMap<String, PendingVpnAction>,
-    /// Cached active VPN connections keyed by Settings.Connection path.
-    vpn_active_by_conn: HashMap<String, VpnActive>,
-    /// Periodic refresh timer for VPN list (when VPN sub-tab is active).
-    vpn_refresh_source: Option<glib::SourceId>,
-    /// Number of in-flight VPN operations; disables action buttons while > 0.
-    vpn_busy_count: usize,
-    /// Prevent re-entrant single-active normalization loops.
-    vpn_normalizing: bool,
-}
-
-
+use self::commands::ScanTarget;
+pub(super) use self::state::PendingVpnAction;
+use self::state::{ActiveTab, AppState};
 
 /// Set up all event handlers, kick off the initial scan, start live updates,
 /// and wire scan-on-show polling.
-pub fn setup(
+pub(crate) fn setup(
     widgets: &PanelWidgets,
     wifi: WifiManager,
     scan_requested: std::sync::Arc<std::sync::atomic::AtomicBool>,
@@ -110,6 +49,7 @@ pub fn setup(
     let state = Rc::new(RefCell::new(AppState {
         wifi,
         vpn,
+        active_tab: ActiveTab::Wifi,
         networks: Vec::new(),
         selected_ssid: None,
         bluetooth: None,
@@ -131,21 +71,20 @@ pub fn setup(
         vpn_pending: HashMap::new(),
         vpn_active_by_conn: HashMap::new(),
         vpn_refresh_source: None,
+        vpn_view_active: false,
+        vpn_view_generation: 0,
         vpn_busy_count: 0,
         vpn_normalizing: false,
     }));
 
+    setup_status_ownership(widgets, Rc::clone(&state));
     connection::setup_wifi_toggle(widgets, Rc::clone(&state));
     connection::setup_network_click(widgets, Rc::clone(&state));
     connection::setup_password_actions(widgets, Rc::clone(&state));
     live_updates::setup_live_updates(widgets, Rc::clone(&state), panel_state.visible.clone());
     scanning::setup_scan_on_show(widgets, Rc::clone(&state), scan_requested);
     bluetooth::setup_bluetooth(widgets, Rc::clone(&state));
-    bt_live_updates::setup_bt_live_updates(
-        widgets,
-        Rc::clone(&state),
-        panel_state.visible.clone(),
-    );
+    bt_live_updates::setup_bt_live_updates(widgets, Rc::clone(&state), panel_state.visible.clone());
     setup_scan_button_dispatch(widgets, Rc::clone(&state));
     setup_wifi_tab_sync(widgets, Rc::clone(&state));
     vpn::setup_vpn(widgets, Rc::clone(&state), panel_state.clone());
@@ -170,14 +109,60 @@ fn get_wifi(state: &Rc<RefCell<AppState>>) -> WifiManager {
     state.borrow().wifi.clone()
 }
 
+/// Keep the shared status label owned by the visible top-level page.
+///
+/// Wi-Fi refreshes are asynchronous and can outlive a tab switch. Recording
+/// the owner synchronously lets a completed Wi-Fi refresh prove that it may
+/// still update the shared label before rendering its result.
+fn setup_status_ownership(widgets: &PanelWidgets, state: Rc<RefCell<AppState>>) {
+    {
+        let state = Rc::clone(&state);
+        widgets.wifi_tab.connect_toggled(move |tab| {
+            if tab.is_active() {
+                state.borrow_mut().active_tab = ActiveTab::Wifi;
+            }
+        });
+    }
+
+    {
+        let state = Rc::clone(&state);
+        let status = widgets.status_label.clone();
+        widgets.bt_tab.connect_toggled(move |tab| {
+            if tab.is_active() {
+                state.borrow_mut().active_tab = ActiveTab::Bluetooth;
+                status.set_text("Checking Bluetooth…");
+            }
+        });
+    }
+
+    // The panel can be shown and interacted with while the initial D-Bus
+    // setup is still running. Reconcile the current selection in case the
+    // Bluetooth toggle happened before these handlers were installed.
+    if widgets.bt_tab.is_active() {
+        state.borrow_mut().active_tab = ActiveTab::Bluetooth;
+        widgets.status_label.set_text("Checking Bluetooth…");
+    }
+}
+
+fn wifi_owns_status(state: &Rc<RefCell<AppState>>) -> bool {
+    state.borrow().active_tab == ActiveTab::Wifi
+}
+
 /// Refresh the network list from D-Bus and update the UI.
 async fn refresh_list(
     state: &Rc<RefCell<AppState>>,
     list_box: &gtk4::ListBox,
     status: &gtk4::Label,
 ) {
+    if !wifi_owns_status(state) {
+        return;
+    }
     let wifi = get_wifi(state);
     let networks = wifi.get_networks().await;
+
+    if !wifi_owns_status(state) {
+        return;
+    }
 
     match networks {
         Ok(nets) => {
@@ -217,8 +202,6 @@ async fn refresh_list(
                 list_box,
                 &nets,
                 &config,
-                &wifi,
-                status,
                 &state.borrow().wifi_pending,
                 on_forget,
             );
@@ -249,8 +232,8 @@ fn setup_scan_button_dispatch(widgets: &PanelWidgets, state: Rc<RefCell<AppState
 
     let scan_btn_cb = scan_btn.clone();
     scan_btn.connect_clicked(move |_btn| {
-        if bt_tab.is_active() {
-            bluetooth::run_manual_scan(
+        match ScanTarget::from_tabs(bt_tab.is_active(), vpn_tab.is_active()) {
+            ScanTarget::Bluetooth => bluetooth::run_manual_scan(
                 Rc::clone(&state),
                 bt_tab.clone(),
                 bt_list_box.clone(),
@@ -258,18 +241,18 @@ fn setup_scan_button_dispatch(widgets: &PanelWidgets, state: Rc<RefCell<AppState
                 scan_btn_cb.clone(),
                 bt_spinner.clone(),
                 bt_scroll.clone(),
-            );
-        } else if vpn_tab.is_active() {
-            status.set_text("VPN view updates automatically");
-        } else {
-            scanning::run_manual_scan(
+            ),
+            ScanTarget::Vpn => {
+                status.set_text("VPN view updates automatically");
+            }
+            ScanTarget::Wifi => scanning::run_manual_scan(
                 Rc::clone(&state),
                 wifi_list_box.clone(),
                 status.clone(),
                 scan_btn_cb.clone(),
                 wifi_spinner.clone(),
                 wifi_scroll.clone(),
-            );
+            ),
         }
     });
 }
@@ -293,6 +276,7 @@ fn setup_wifi_tab_sync(widgets: &PanelWidgets, state: Rc<RefCell<AppState>>) {
     wifi_tab.connect_toggled(move |btn| {
         if !btn.is_active() {
             scanning::stop_wifi_auto_scan(&state);
+            vpn::deactivate_vpn_view(&state);
             vpn::stop_vpn_refresh(&state);
             return;
         }
@@ -336,13 +320,15 @@ fn setup_wifi_tab_sync(widgets: &PanelWidgets, state: Rc<RefCell<AppState>>) {
                 Rc::clone(&state),
                 btn.clone(),
                 vpn_tab.clone(),
-                window.clone(),
-                vpn_list_box.clone(),
-                status.clone(),
-                vpn_spinner.clone(),
-                vpn_scroll.clone(),
-                vpn_import_btn.clone(),
-                vpn_open_btn.clone(),
+                vpn::VpnView {
+                    window: window.clone(),
+                    list_box: vpn_list_box.clone(),
+                    status: status.clone(),
+                    spinner: vpn_spinner.clone(),
+                    scrolled: vpn_scroll.clone(),
+                    import_btn: vpn_import_btn.clone(),
+                    open_btn: vpn_open_btn.clone(),
+                },
             );
         } else {
             scanning::start_wifi_auto_scan(
@@ -394,22 +380,27 @@ fn setup_visibility_pause(
                     // NM device state 100 = Activated (connected).
                     // We check by asking for the active connection path;
                     // a path of "/" means no active connection.
-                    let is_connected = match wifi.connection().call_method(
-                        Some("org.freedesktop.NetworkManager"),
-                        wifi.wifi_device_path(),
-                        Some("org.freedesktop.DBus.Properties"),
-                        "Get",
-                        &(
-                            "org.freedesktop.NetworkManager.Device",
-                            "ActiveConnection",
-                        ),
-                    ).await {
+                    let is_connected = match wifi
+                        .connection()
+                        .call_method(
+                            Some("org.freedesktop.NetworkManager"),
+                            wifi.wifi_device_path(),
+                            Some("org.freedesktop.DBus.Properties"),
+                            "Get",
+                            &("org.freedesktop.NetworkManager.Device", "ActiveConnection"),
+                        )
+                        .await
+                    {
                         Ok(msg) => {
-                            let path: zbus::zvariant::OwnedObjectPath =
-                                msg.body().deserialize().unwrap_or_else(|_| {
-                                    zbus::zvariant::OwnedObjectPath::try_from("/").unwrap()
-                                });
-                            path.as_str() != "/"
+                            match msg.body().deserialize::<zbus::zvariant::OwnedObjectPath>() {
+                                Ok(path) => path.as_str() != "/",
+                                Err(error) => {
+                                    log::warn!(
+                                        "Could not decode NetworkManager ActiveConnection: {error}"
+                                    );
+                                    false
+                                }
+                            }
                         }
                         Err(_) => false,
                     };

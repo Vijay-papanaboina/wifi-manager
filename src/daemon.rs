@@ -10,8 +10,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use zbus::interface;
 
 /// The D-Bus interface name and path.
-pub const DBUS_NAME: &str = "com.github.wifi_manager.Daemon";
-pub const DBUS_PATH: &str = "/com/github/wifi_manager/Daemon";
+pub(crate) const DBUS_NAME: &str = "com.github.wifi_manager.Daemon";
+pub(crate) const DBUS_PATH: &str = "/com/github/wifi_manager/Daemon";
 
 /// Thread-safe callback type for toggling visibility from D-Bus thread.
 type ToggleFn = Arc<dyn Fn(bool) + Send + Sync>;
@@ -19,19 +19,19 @@ type ToggleFn = Arc<dyn Fn(bool) + Send + Sync>;
 /// State shared between the D-Bus service and the GTK window.
 /// Must be Send + Sync because zbus runs on its own async runtime.
 #[derive(Clone)]
-pub struct PanelState {
+pub(crate) struct PanelState {
     /// Whether the panel is currently visible.
-    pub visible: Arc<AtomicBool>,
+    pub(crate) visible: Arc<AtomicBool>,
     /// Flag set by show() — polled by GTK main thread to trigger scan-on-show.
-    pub scan_requested: Arc<AtomicBool>,
+    pub(crate) scan_requested: Arc<AtomicBool>,
     /// Flag set by reload() — polled by GTK main thread to reload config/CSS.
-    pub reload_requested: Arc<AtomicBool>,
+    pub(crate) reload_requested: Arc<AtomicBool>,
     /// Callback to toggle visibility — dispatches to GTK main thread.
     toggle_fn: ToggleFn,
 }
 
 impl PanelState {
-    pub fn new(toggle_fn: impl Fn(bool) + Send + Sync + 'static) -> Self {
+    pub(crate) fn new(toggle_fn: impl Fn(bool) + Send + Sync + 'static) -> Self {
         Self {
             visible: Arc::new(AtomicBool::new(false)),
             scan_requested: Arc::new(AtomicBool::new(false)),
@@ -40,18 +40,18 @@ impl PanelState {
         }
     }
 
-    pub fn show(&self) {
+    pub(crate) fn show(&self) {
         self.visible.store(true, Ordering::Relaxed);
         self.scan_requested.store(true, Ordering::Relaxed);
         (self.toggle_fn)(true);
     }
 
-    pub fn hide(&self) {
+    pub(crate) fn hide(&self) {
         self.visible.store(false, Ordering::Relaxed);
         (self.toggle_fn)(false);
     }
 
-    pub fn toggle(&self) {
+    pub(crate) fn toggle(&self) {
         if self.visible.load(Ordering::Relaxed) {
             self.hide();
         } else {
@@ -100,7 +100,7 @@ impl DaemonInterface {
 
 /// Register the D-Bus service on the session bus.
 /// Returns the connection (keep alive for the daemon's lifetime).
-pub async fn register_service(state: PanelState) -> zbus::Result<zbus::Connection> {
+pub(crate) async fn register_service(state: PanelState) -> zbus::Result<zbus::Connection> {
     let iface = DaemonInterface { state };
 
     let conn = zbus::connection::Builder::session()?
@@ -114,42 +114,34 @@ pub async fn register_service(state: PanelState) -> zbus::Result<zbus::Connectio
 }
 
 /// Check if another instance is already running (name is taken on session bus).
-pub async fn is_instance_running() -> bool {
+pub(crate) async fn is_instance_running() -> bool {
     let conn = match zbus::Connection::session().await {
         Ok(c) => c,
         Err(_) => return false,
     };
 
     let result = conn
-        .call_method(
-            Some(DBUS_NAME),
-            DBUS_PATH,
-            Some("org.freedesktop.DBus.Peer"),
-            "Ping",
-            &(),
-        )
+        .call_method(Some(DBUS_NAME), DBUS_PATH, Some("org.freedesktop.DBus.Peer"), "Ping", &())
         .await;
 
     result.is_ok()
 }
 
 /// Send a Toggle() call to the running daemon instance.
-pub async fn send_toggle() -> zbus::Result<()> {
+pub(crate) async fn send_toggle() -> zbus::Result<()> {
     let conn = zbus::Connection::session().await?;
 
-    conn.call_method(Some(DBUS_NAME), DBUS_PATH, Some(DBUS_NAME), "Toggle", &())
-        .await?;
+    conn.call_method(Some(DBUS_NAME), DBUS_PATH, Some(DBUS_NAME), "Toggle", &()).await?;
 
     log::info!("Toggle sent to running instance");
     Ok(())
 }
 
 /// Send Reload() to the running daemon.
-pub async fn send_reload() -> zbus::Result<()> {
+pub(crate) async fn send_reload() -> zbus::Result<()> {
     let conn = zbus::Connection::session().await?;
 
-    conn.call_method(Some(DBUS_NAME), DBUS_PATH, Some(DBUS_NAME), "Reload", &())
-        .await?;
+    conn.call_method(Some(DBUS_NAME), DBUS_PATH, Some(DBUS_NAME), "Reload", &()).await?;
 
     log::info!("Reload sent to running instance");
     Ok(())

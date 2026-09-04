@@ -1,17 +1,17 @@
 //! Scrollable list of Bluetooth devices.
 
+use crate::ui::window::{MAX_LIST_HEIGHT, MIN_LIST_HEIGHT};
 use gtk4::prelude::*;
 use gtk4::{Align, Label, ListBox, ListBoxRow, PolicyType, ScrolledWindow, SelectionMode};
 use std::collections::HashMap;
-use crate::ui::window::{MIN_LIST_HEIGHT, MAX_LIST_HEIGHT};
 
 use super::device_row;
-use crate::dbus::bluetooth_device::BluetoothDevice;
+use crate::domain::bluetooth::BluetoothDevice;
 
 /// Build a scrollable device list.
 ///
 /// Returns `(scrolled_window, list_box)`.
-pub fn build_device_list() -> (ScrolledWindow, ListBox) {
+pub(crate) fn build_device_list() -> (ScrolledWindow, ListBox) {
     let list_box = ListBox::new();
     list_box.add_css_class("device-list");
     list_box.set_selection_mode(SelectionMode::None);
@@ -30,7 +30,7 @@ pub fn build_device_list() -> (ScrolledWindow, ListBox) {
 }
 
 /// Clear the list and repopulate with the given Bluetooth devices.
-pub fn populate_device_list(
+pub(crate) fn populate_device_list(
     list_box: &ListBox,
     devices: &[BluetoothDevice],
     pending: &HashMap<String, String>,
@@ -49,17 +49,22 @@ pub fn populate_device_list(
         return Vec::new();
     }
 
-    let has_paired = devices.iter().any(|d| d.paired);
-    let mut inserted_separator = false;
     let mut row_paths: Vec<Option<String>> = Vec::new();
+    let mut paired = Vec::new();
+    let mut available = Vec::new();
 
+    // The domain order is connected, paired, name, path. Partitioning here
+    // keeps the visual sections correct even when a connected device is not
+    // paired (for example, a newly discovered device).
     for device in devices {
-        if has_paired && !device.paired && !inserted_separator {
-            list_box.append(&build_separator_row("Available devices"));
-            inserted_separator = true;
-            row_paths.push(None);
+        if device.paired {
+            paired.push(device);
+        } else {
+            available.push(device);
         }
+    }
 
+    let append_device = |device: &BluetoothDevice, row_paths: &mut Vec<Option<String>>| {
         let on_remove = on_remove.clone();
         let on_menu_active = on_menu_active.clone();
 
@@ -76,6 +81,19 @@ pub fn populate_device_list(
         );
         list_box.append(&row);
         row_paths.push(Some(device.device_path.clone()));
+    };
+
+    let has_paired = !paired.is_empty();
+    let has_available = !available.is_empty();
+    for device in &paired {
+        append_device(device, &mut row_paths);
+    }
+    if has_paired && has_available {
+        list_box.append(&build_separator_row("Available devices"));
+        row_paths.push(None);
+    }
+    for device in &available {
+        append_device(device, &mut row_paths);
     }
 
     row_paths

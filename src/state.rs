@@ -7,33 +7,31 @@ use std::path::PathBuf;
 
 /// Persisted state for the Night Mode control.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct NightModeState {
+#[serde(default)]
+pub(crate) struct NightModeState {
     /// Whether Night Mode is currently enabled.
-    pub enabled: bool,
+    pub(crate) enabled: bool,
     /// The last user-configured color temperature in Kelvin.
-    pub temperature: f64,
+    pub(crate) temperature: f64,
 }
 
 impl Default for NightModeState {
     fn default() -> Self {
-        Self {
-            enabled: false,
-            temperature: 4500.0,
-        }
+        Self { enabled: false, temperature: 4500.0 }
     }
 }
 
 /// Top-level runtime state store. Add new dynamic UI states here.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct AppStateStore {
+pub(crate) struct AppStateStore {
     #[serde(default)]
-    pub night_mode: NightModeState,
+    pub(crate) night_mode: NightModeState,
 }
 
 impl AppStateStore {
     /// Load dynamic state from `~/.config/wifi-manager/state.toml`.
     /// Falls back to defaults silently if the file is missing or malformed.
-    pub fn load() -> Self {
+    pub(crate) fn load() -> Self {
         let Some(path) = state_file_path() else {
             return Self::default();
         };
@@ -62,17 +60,17 @@ impl AppStateStore {
 
     /// Persist the current state to `~/.config/wifi-manager/state.toml`.
     /// Creates the directory if it doesn't exist. Does not touch `config.toml`.
-    pub fn save(&self) {
+    pub(crate) fn save(&self) {
         let Some(path) = state_file_path() else {
             log::warn!("Cannot determine state file path, skipping save");
             return;
         };
 
-        if let Some(parent) = path.parent() {
-            if let Err(e) = std::fs::create_dir_all(parent) {
-                log::warn!("Failed to create state directory: {e}");
-                return;
-            }
+        if let Some(parent) = path.parent()
+            && let Err(e) = std::fs::create_dir_all(parent)
+        {
+            log::warn!("Failed to create state directory: {e}");
+            return;
         }
 
         match toml::to_string_pretty(self) {
@@ -91,10 +89,31 @@ impl AppStateStore {
 /// Returns the path to `~/.config/wifi-manager/state.toml`.
 fn state_file_path() -> Option<PathBuf> {
     let home = std::env::var("HOME").ok()?;
-    Some(
-        PathBuf::from(home)
-            .join(".config")
-            .join("wifi-manager")
-            .join("state.toml"),
-    )
+    Some(PathBuf::from(home).join(".config").join("wifi-manager").join("state.toml"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn night_mode_defaults_to_disabled_neutral_temperature() {
+        let state = NightModeState::default();
+        assert!(!state.enabled);
+        assert_eq!(state.temperature, 4500.0);
+    }
+
+    #[test]
+    fn parses_missing_fields_with_defaults() {
+        let state: AppStateStore = toml::from_str(
+            r#"
+                [night_mode]
+                enabled = true
+            "#,
+        )
+        .expect("valid state fixture");
+
+        assert!(state.night_mode.enabled);
+        assert_eq!(state.night_mode.temperature, 4500.0);
+    }
 }

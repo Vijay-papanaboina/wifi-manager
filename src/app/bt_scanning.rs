@@ -45,11 +45,7 @@ pub(super) fn run_manual_scan(
             list_box,
             status,
             bt_tab,
-            Some(ManualBtScanUi {
-                scan_btn,
-                spinner,
-                scroll,
-            }),
+            Some(ManualBtScanUi { scan_btn, spinner, scroll }),
             BT_MANUAL_SCAN_WINDOW_MS,
         )
         .await;
@@ -101,9 +97,8 @@ pub(super) fn start_bt_background_tasks(
     });
 
     // Periodic live-refresh (shows newly visible devices without a full scan).
-    let live_refresh_id = glib::timeout_add_local(
-        std::time::Duration::from_millis(BT_LIVE_REFRESH_INTERVAL_MS),
-        {
+    let live_refresh_id =
+        glib::timeout_add_local(std::time::Duration::from_millis(BT_LIVE_REFRESH_INTERVAL_MS), {
             let state = Rc::clone(&state);
             let list_box = list_box.clone();
             let status = status.clone();
@@ -134,8 +129,7 @@ pub(super) fn start_bt_background_tasks(
                 });
                 glib::ControlFlow::Continue
             }
-        },
-    );
+        });
 
     state.borrow_mut().bt_live_refresh_source = Some(live_refresh_id);
 }
@@ -188,10 +182,10 @@ pub(super) async fn resume_bt_background_tasks(
 
 /// Tell BlueZ to stop discovery (best-effort, logs a warning on failure).
 pub(super) async fn stop_bt_discovery(state: Rc<RefCell<AppState>>) {
-    if let Some(bt) = get_bt(&state) {
-        if let Err(e) = bt.stop_discovery().await {
-            log::warn!("BT discovery stop failed: {e}");
-        }
+    if let Some(bt) = get_bt(&state)
+        && let Err(e) = bt.stop_discovery().await
+    {
+        log::warn!("BT discovery stop failed: {e}");
     }
 }
 
@@ -289,14 +283,10 @@ pub(super) async fn run_bt_scan_burst(
         st.bt_scan_in_progress = true;
         st.bt_task_generation
     };
-    let _guard = ScanGuard {
-        state: Rc::clone(&state),
-        generation,
-    };
+    let _guard = ScanGuard { state: Rc::clone(&state), generation };
 
-    let is_current = |state: &Rc<RefCell<AppState>>| {
-        state.borrow().bt_task_generation == generation
-    };
+    let is_current =
+        |state: &Rc<RefCell<AppState>>| state.borrow().bt_task_generation == generation;
 
     let bt = match get_bt(&state) {
         Some(bt) => bt,
@@ -374,10 +364,8 @@ pub(super) async fn run_bt_scan_burst(
         let st = state.borrow();
         st.bt_task_generation == generation || !st.bt_scan_in_progress
     };
-    if can_stop_discovery {
-        if let Err(e) = bt.stop_discovery().await {
-            log::warn!("BT discovery stop failed: {e}");
-        }
+    if can_stop_discovery && let Err(e) = bt.stop_discovery().await {
+        log::warn!("BT discovery stop failed: {e}");
     }
 
     if let Some(ui) = manual_ui {
