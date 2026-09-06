@@ -1978,7 +1978,7 @@ dependencies = [
 
 [[package]]
 name = "wifi-manager"
-version = "0.2.0"
+version = "0.4.0"
 dependencies = [
  "clap",
  "env_logger",
@@ -1993,6 +1993,7 @@ dependencies = [
  "serde",
  "smithay-client-toolkit",
  "toml 0.8.23",
+ "toml_edit 0.22.27",
  "wayland-client",
  "wayland-protocols-wlr",
  "zbus",

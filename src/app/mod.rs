@@ -15,9 +15,11 @@ mod commands;
 mod connection;
 mod controls;
 mod live_updates;
+mod media;
 mod scanning;
 mod shortcuts;
 mod state;
+mod system;
 mod system_power;
 mod vpn;
 mod vpn_import;
@@ -110,10 +112,15 @@ pub(crate) fn setup(
 /// Start controls whose services do not depend on NetworkManager.  This is
 /// called while the window is being activated so Audio/Power navigation and
 /// their honest unavailable states still work when Wi-Fi setup is unavailable.
-pub(crate) fn setup_system_controls(widgets: &PanelWidgets) {
+pub(crate) fn setup_system_controls(
+    widgets: &PanelWidgets,
+    panel_visible: std::sync::Arc<std::sync::atomic::AtomicBool>,
+) {
     controls::setup_controls(widgets);
     audio::setup(widgets);
     system_power::setup(widgets);
+    system::setup(widgets, panel_visible);
+    media::setup(widgets);
 }
 
 /// Clone the WifiManager out of the RefCell (avoids holding borrow across await).

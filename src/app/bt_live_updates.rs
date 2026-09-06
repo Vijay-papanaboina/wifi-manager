@@ -272,6 +272,81 @@ pub(super) fn setup_bt_live_updates(
             }
         }
 
+        // Battery1 is a sibling interface on the same BlueZ device object.
+        // Keep its optional Percentage property live in the detail list while
+        // leaving Home/status ownership to the existing Device1 path.
+        let battery_rule = zbus::MatchRule::builder()
+            .msg_type(zbus::message::Type::Signal)
+            .sender("org.bluez")
+            .and_then(|rule| rule.interface("org.freedesktop.DBus.Properties"))
+            .and_then(|rule| rule.member("PropertiesChanged"))
+            .and_then(|rule| rule.arg(0, "org.bluez.Battery1"))
+            .and_then(|rule| rule.path_namespace(bt.adapter_path()))
+            .map(|rule| rule.build());
+
+        match battery_rule {
+            Ok(battery_rule) => {
+                match zbus::MessageStream::for_match_rule(battery_rule, conn, Some(32)).await {
+                    Ok(mut battery_stream) => {
+                        let state_for_battery = Rc::clone(&state);
+                        let bt_tab_for_battery = bt_tab.clone();
+                        let bt_list_box_for_battery = bt_list_box.clone();
+                        let status_for_battery = status.clone();
+                        glib::spawn_future_local(async move {
+                            use futures_util::StreamExt;
+                            while let Some(message) = battery_stream.next().await {
+                                let message = match message {
+                                    Ok(message) => message,
+                                    Err(error) => {
+                                        log::debug!(
+                                            "Ignoring BlueZ Battery1 PropertiesChanged stream error: {error}"
+                                        );
+                                        continue;
+                                    }
+                                };
+                                let (_interface, changed, invalidated) = match message
+                                    .body()
+                                    .deserialize::<(
+                                        String,
+                                        HashMap<String, zbus::zvariant::OwnedValue>,
+                                        Vec<String>,
+                                    )>() {
+                                    Ok(body) => body,
+                                    Err(error) => {
+                                        log::debug!(
+                                            "Ignoring malformed BlueZ Battery1 PropertiesChanged signal: {error}"
+                                        );
+                                        continue;
+                                    }
+                                };
+                                if !changed.contains_key("Percentage")
+                                    && !invalidated.iter().any(|name| name == "Percentage")
+                                {
+                                    continue;
+                                }
+                                if bt_tab_for_battery.is_active() {
+                                    refresh_bt_list(
+                                        &state_for_battery,
+                                        &bt_list_box_for_battery,
+                                        &status_for_battery,
+                                    )
+                                    .await;
+                                }
+                            }
+                        });
+                    }
+                    Err(error) => {
+                        log::error!(
+                            "Failed to subscribe to BlueZ Battery1 PropertiesChanged: {error}"
+                        );
+                    }
+                }
+            }
+            Err(error) => {
+                log::error!("Failed to build BlueZ Battery1 match rule: {error}");
+            }
+        }
+
         let obj_manager = match BluezObjectManagerProxy::new(conn).await {
             Ok(p) => p,
             Err(e) => {

@@ -728,6 +728,90 @@ button.cc-tile:disabled {
   padding-top: 12px;
 }
 
+/* ── Home media card ─────────────────────────────────────────────────────── */
+
+.cc-media-card {
+  min-width: 0;
+  padding: 8px 10px;
+  background: rgba(255, 255, 255, 0.045);
+  border-radius: 12px;
+}
+
+.cc-media-artwork {
+  min-width: 48px;
+  min-height: 48px;
+  border-radius: 8px;
+  color: rgba(120, 174, 237, 0.8);
+}
+
+.cc-media-title,
+.cc-media-subtitle,
+.cc-media-feedback {
+  min-width: 0;
+  max-width: 100%;
+  font-size: 11px;
+}
+
+.cc-media-title {
+  color: rgba(255, 255, 255, 0.92);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.cc-media-subtitle {
+  color: rgba(255, 255, 255, 0.48);
+}
+
+.cc-media-feedback {
+  color: #ffbe6f;
+}
+
+.cc-media-actions {
+  min-width: 0;
+}
+
+.cc-media-action {
+  min-width: 28px;
+  min-height: 26px;
+  padding: 0;
+}
+
+/* ── System detail ───────────────────────────────────────────────────────── */
+
+.cc-system-page,
+.cc-system-section,
+.cc-metric-row {
+  min-width: 0;
+}
+
+.cc-system-section-title {
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.cc-metric-row {
+  min-height: 26px;
+  padding: 3px 8px;
+  background: rgba(255, 255, 255, 0.035);
+  border-radius: 7px;
+}
+
+.cc-metric-title,
+.cc-metric-value {
+  min-width: 0;
+  font-size: 11px;
+}
+
+.cc-metric-title {
+  color: rgba(255, 255, 255, 0.62);
+}
+
+.cc-metric-value {
+  color: rgba(255, 255, 255, 0.88);
+  font-weight: 600;
+}
+
 .cc-compatibility-controls,
 .compat-status-label {
   min-height: 0;
@@ -737,13 +821,14 @@ button.cc-tile:disabled {
 .cc-tile:focus-visible,
 .cc-back-button:focus-visible,
 .cc-audio-action:focus-visible,
+.cc-media-action:focus-visible,
 .controls-panel button:focus-visible,
 .controls-panel scale:focus-visible,
 .scan-button:focus-visible,
 .subtab-button:focus-visible,
 .vpn-action-btn:focus-visible,
 .glyph-button:focus-visible,
-.wifi-toggle:focus-visible {
+  .wifi-toggle:focus-visible {
   outline: 2px solid rgba(120, 174, 237, 0.9);
   outline-offset: 2px;
   box-shadow: 0 0 0 3px rgba(53, 132, 228, 0.25);

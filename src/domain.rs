@@ -6,6 +6,8 @@
 
 pub(crate) mod audio;
 pub(crate) mod bluetooth;
+pub(crate) mod media;
 pub(crate) mod network;
 pub(crate) mod power;
+pub(crate) mod system;
 pub(crate) mod vpn;

@@ -172,6 +172,8 @@ impl ControlsPanel {
     }
     /// Apply configuration values that can change without rebuilding widgets.
     pub(crate) fn apply_config(&self, config: &Config) {
+        self.brightness_btn.set_icon_name(&config.brightness_icon);
+        self.volume_btn.set_icon_name(&config.volume_icon);
         let night_mode_icon = if self.night_mode_scale.is_sensitive() {
             &config.night_mode_on_icon
         } else {
@@ -243,7 +245,7 @@ impl ControlsPanel {
 
         // Clickable brightness icon: click to toggle between 1% dim and last custom level
         let brightness_btn = Button::builder()
-            .icon_name("display-brightness-symbolic")
+            .icon_name(&config.brightness_icon)
             .tooltip_text("Click to toggle minimum brightness")
             .build();
         set_pointer_cursor(&brightness_btn);
@@ -268,7 +270,7 @@ impl ControlsPanel {
 
         // Clickable volume icon: click to toggle mute
         let volume_btn = Button::builder()
-            .icon_name("audio-volume-high-symbolic")
+            .icon_name(&config.volume_icon)
             .tooltip_text("Click to toggle mute")
             .build();
         set_pointer_cursor(&volume_btn);
@@ -276,11 +278,8 @@ impl ControlsPanel {
         volume_btn.add_css_class("circular");
 
         // Hidden Image widget kept for dynamic icon updates from volume callbacks
-        let volume_icon = Image::builder()
-            .icon_name("audio-volume-high-symbolic")
-            .pixel_size(16)
-            .visible(false)
-            .build();
+        let volume_icon =
+            Image::builder().icon_name(&config.volume_icon).pixel_size(16).visible(false).build();
 
         let volume_scale = Scale::builder()
             .orientation(Orientation::Horizontal)

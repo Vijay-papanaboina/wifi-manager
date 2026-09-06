@@ -35,6 +35,8 @@ pub(super) fn setup_reload_on_request(
     let status = widgets.status_label.clone();
     let window = widgets.window.clone();
     let controls = widgets.controls.clone();
+    let home = widgets.home.clone();
+    let media = widgets.media.clone();
 
     glib::timeout_add_local(std::time::Duration::from_millis(200), move || {
         if reload_requested.swap(false, std::sync::atomic::Ordering::Relaxed) {
@@ -44,12 +46,20 @@ pub(super) fn setup_reload_on_request(
             let status = status.clone();
             let window = window.clone();
             let controls = controls.clone();
+            let home = home.clone();
+            let media = media.clone();
 
             glib::spawn_future_local(async move {
                 // Reload CSS
                 crate::ui::window::reload_css();
                 // Reapply placement and configurable control glyphs.
-                crate::ui::window::apply_runtime_config(&window, &controls, &Config::load());
+                crate::ui::window::apply_runtime_config(
+                    &window,
+                    &controls,
+                    &home,
+                    &media,
+                    &Config::load(),
+                );
                 // Refresh network list (which also reloads network icons).
                 refresh_list(&state, &list_box, &status).await;
             });

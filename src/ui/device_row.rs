@@ -135,7 +135,7 @@ pub(crate) fn build_device_row(
 }
 
 /// Build the subtitle text for a Bluetooth device.
-fn device_subtitle(device: &BluetoothDevice, pending: Option<&str>) -> String {
+pub(crate) fn device_subtitle(device: &BluetoothDevice, pending: Option<&str>) -> String {
     let mut parts = Vec::new();
 
     parts.push(device.category.to_string());
@@ -150,5 +150,36 @@ fn device_subtitle(device: &BluetoothDevice, pending: Option<&str>) -> String {
         parts.push(pending.to_string());
     }
 
+    if let Some(percentage) = device.battery_percentage {
+        parts.push(format!("Battery {percentage}%"));
+    }
+
     parts.join(" · ")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::domain::bluetooth::DeviceCategory;
+
+    fn device(battery_percentage: Option<u8>) -> BluetoothDevice {
+        BluetoothDevice {
+            address: "AA:BB:CC:DD:EE:FF".to_string(),
+            display_name: "Headphones".to_string(),
+            category: DeviceCategory::Audio,
+            paired: true,
+            connected: true,
+            trusted: false,
+            rssi: -30,
+            battery_percentage,
+            device_path: "/org/bluez/hci0/dev_AA_BB_CC_DD_EE_FF".to_string(),
+        }
+    }
+
+    #[test]
+    fn battery_subtitle_is_optional_and_preserves_boundaries() {
+        assert!(!device_subtitle(&device(None), None).contains("Battery"));
+        assert!(device_subtitle(&device(Some(0)), None).contains("Battery 0%"));
+        assert!(device_subtitle(&device(Some(100)), None).contains("Battery 100%"));
+    }
 }

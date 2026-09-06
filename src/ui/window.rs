@@ -14,8 +14,8 @@ use gtk4_layer_shell::{Edge, KeyboardMode, Layer, LayerShell};
 use std::cell::RefCell;
 
 use super::{
-    audio, controls_panel, device_list, header, home, network_list, password_dialog, power,
-    vpn_list,
+    audio, controls_panel, device_list, header, home, media, network_list, password_dialog, power,
+    system, vpn_list,
 };
 use crate::config::{Config, Position};
 
@@ -40,6 +40,7 @@ pub(crate) enum PanelPage {
     Bluetooth,
     Audio,
     Power,
+    System,
 }
 
 impl PanelPage {
@@ -50,6 +51,7 @@ impl PanelPage {
             Self::Bluetooth => "bluetooth",
             Self::Audio => "audio",
             Self::Power => "power",
+            Self::System => "system",
         }
     }
 }
@@ -95,6 +97,8 @@ pub(crate) struct PanelWidgets {
     pub home: home::HomeWidgets,
     pub audio: audio::AudioWidgets,
     pub power: power::PowerWidgets,
+    pub media: media::MediaWidgets,
+    pub system: system::SystemWidgets,
     // Display and Power detail controls
     pub controls: controls_panel::ControlsPanel,
 }
@@ -141,6 +145,14 @@ impl PanelWidgets {
             }
             PanelPage::Power => {
                 self.title_label.set_text("Power");
+                self.title_label.set_visible(false);
+                self.wifi_switch.set_visible(false);
+                self.scan_button.set_visible(false);
+                self.wifi_tab.set_active(false);
+                self.bt_tab.set_active(false);
+            }
+            PanelPage::System => {
+                self.title_label.set_text("System");
                 self.title_label.set_visible(false);
                 self.wifi_switch.set_visible(false);
                 self.scan_button.set_visible(false);
@@ -194,10 +206,12 @@ pub(crate) fn build_window(app: &Application) -> PanelWidgets {
     content_stack.add_css_class("content-stack");
 
     // ── Home page ────────────────────────────────────────────────────
-    let home = home::HomeWidgets::new();
+    let home = home::HomeWidgets::new(&config);
     let home_page = GtkBox::new(Orientation::Vertical, 0);
     home_page.add_css_class("cc-page");
     home_page.append(&home.container);
+    let media = media::MediaWidgets::new(&config.media_icon);
+    home_page.append(&media.container);
     content_stack.add_named(&home_page, Some(PanelPage::Home.name()));
 
     // ── Wi-Fi detail page ────────────────────────────────────────────
@@ -357,6 +371,15 @@ pub(crate) fn build_window(app: &Application) -> PanelWidgets {
     power_page.append(&power_hint);
     content_stack.add_named(&power_page, Some(PanelPage::Power.name()));
 
+    // ── System detail page ──────────────────────────────────────────
+    let system = system::SystemWidgets::new();
+    let system_page = GtkBox::new(Orientation::Vertical, 0);
+    system_page.add_css_class("cc-page");
+    let (system_header, system_back_button) = make_detail_header("System", &system.status);
+    system_page.append(&system_header);
+    system_page.append(&system.container);
+    content_stack.add_named(&system_page, Some(PanelPage::System.name()));
+
     // Start on Home, where the persistent quick controls are immediately
     // usable without opening a detail page.
     content_stack.set_visible_child_name(PanelPage::Home.name());
@@ -397,6 +420,8 @@ pub(crate) fn build_window(app: &Application) -> PanelWidgets {
         home,
         audio,
         power,
+        media,
+        system,
         controls,
     };
 
@@ -406,6 +431,7 @@ pub(crate) fn build_window(app: &Application) -> PanelWidgets {
         bt_back_button,
         audio_back_button,
         power_back_button,
+        system_back_button,
     );
     log::info!("Layer-shell Control Center built (hidden)");
     widgets
@@ -448,19 +474,21 @@ fn wire_navigation(
     bt_back: Button,
     audio_back: Button,
     power_back: Button,
+    system_back: Button,
 ) {
     let navigation = [
         (widgets.home.wifi.button().clone(), PanelPage::Wifi),
         (widgets.home.bluetooth.button().clone(), PanelPage::Bluetooth),
         (widgets.home.audio.button().clone(), PanelPage::Audio),
         (widgets.home.power_battery.button().clone(), PanelPage::Power),
+        (widgets.home.system.button().clone(), PanelPage::System),
     ];
     for (button, page) in navigation {
         let widgets = widgets.clone();
         button.connect_clicked(move |_| widgets.navigate_to(page));
     }
 
-    for back in [wifi_back, bt_back, audio_back, power_back] {
+    for back in [wifi_back, bt_back, audio_back, power_back, system_back] {
         let widgets = widgets.clone();
         back.connect_clicked(move |_| widgets.show_home());
     }
@@ -569,10 +597,14 @@ fn apply_position(window: &ApplicationWindow, config: &Config) {
 pub(crate) fn apply_runtime_config(
     window: &ApplicationWindow,
     controls: &controls_panel::ControlsPanel,
+    home: &home::HomeWidgets,
+    media: &media::MediaWidgets,
     config: &Config,
 ) {
     apply_position(window, config);
     controls.apply_config(config);
+    home.apply_config(config);
+    media.apply_config(&config.media_icon);
 }
 
 fn set_pointer_cursor<W: IsA<gtk4::Widget>>(widget: &W) {

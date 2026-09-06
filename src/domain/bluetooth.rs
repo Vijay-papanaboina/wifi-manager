@@ -73,6 +73,9 @@ pub(crate) struct BluetoothDevice {
     pub(crate) connected: bool,
     pub(crate) trusted: bool,
     pub(crate) rssi: i16,
+    /// Optional percentage exported by BlueZ's sibling Battery1 interface.
+    /// Absence is meaningful: many Bluetooth devices do not expose a battery.
+    pub(crate) battery_percentage: Option<u8>,
     pub(crate) device_path: String,
 }
 
@@ -89,6 +92,12 @@ impl BluetoothDevice {
             self.device_path.clone(),
         )
     }
+}
+
+/// BlueZ exposes Battery1.Percentage as a byte, but only the documented
+/// percentage range is meaningful to the UI.
+pub(crate) fn battery_percentage_from_bluez(value: u8) -> Option<u8> {
+    (value <= 100).then_some(value)
 }
 
 #[cfg(test)]
@@ -112,6 +121,7 @@ mod tests {
             connected,
             trusted: false,
             rssi: 0,
+            battery_percentage: None,
             device_path: path.to_string(),
         };
 
@@ -122,5 +132,12 @@ mod tests {
         let first = device("same", false, false, "/dev/a");
         let second = device("same", false, false, "/dev/b");
         assert!(first.sort_key() < second.sort_key());
+    }
+
+    #[test]
+    fn rejects_out_of_range_bluez_battery_percentages() {
+        assert_eq!(battery_percentage_from_bluez(0), Some(0));
+        assert_eq!(battery_percentage_from_bluez(100), Some(100));
+        assert_eq!(battery_percentage_from_bluez(255), None);
     }
 }

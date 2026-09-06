@@ -106,7 +106,7 @@ fn start_application() {
         // Audio, battery, display, and power actions do not depend on a
         // successful NetworkManager connection.  Start them immediately so
         // the Control Center remains navigable with optional services absent.
-        app::setup_system_controls(&widgets);
+        app::setup_system_controls(&widgets, panel_state.visible.clone());
 
         let daemon_state = panel_state.clone();
         glib::spawn_future_local(async move {

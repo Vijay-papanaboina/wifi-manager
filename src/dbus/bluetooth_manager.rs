@@ -6,7 +6,7 @@
 use zbus::zvariant::OwnedObjectPath;
 
 use super::bluez_proxies::*;
-use crate::domain::bluetooth::{BluetoothDevice, DeviceCategory};
+use crate::domain::bluetooth::{BluetoothDevice, DeviceCategory, battery_percentage_from_bluez};
 
 /// The Bluetooth manager that wraps all BlueZ D-Bus interactions.
 #[derive(Clone)]
@@ -141,7 +141,12 @@ impl BluetoothManager {
                 continue;
             };
 
-            let device = self.parse_device_properties(path_str, props);
+            let battery_percentage = ifaces
+                .get("org.bluez.Battery1")
+                .and_then(|properties| properties.get("Percentage"))
+                .and_then(|value| u8::try_from(value.clone()).ok())
+                .and_then(battery_percentage_from_bluez);
+            let device = self.parse_device_properties(path_str, props, battery_percentage);
             devices.push(device);
         }
 
@@ -251,6 +256,7 @@ impl BluetoothManager {
         &self,
         path: &str,
         props: &std::collections::HashMap<String, zbus::zvariant::OwnedValue>,
+        battery_percentage: Option<u8>,
     ) -> BluetoothDevice {
         let address = props
             .get("Address")
@@ -296,6 +302,7 @@ impl BluetoothManager {
             connected,
             trusted,
             rssi,
+            battery_percentage,
             device_path: path.to_string(),
         }
     }

@@ -8,6 +8,8 @@ use gtk4::{Align, Box as GtkBox, Button, Grid, Image, Label, Orientation, prelud
 use std::cell::RefCell;
 use std::rc::Rc;
 
+use crate::config::Config;
+
 /// Neutral states a controller may use before it has a backend value.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum TileState {
@@ -28,6 +30,7 @@ impl TileState {
 #[derive(Clone)]
 pub(crate) struct HomeTileWidgets {
     button: Button,
+    icon: Image,
     status: Label,
 }
 
@@ -50,6 +53,10 @@ impl HomeTileWidgets {
     pub(crate) fn set_status(&self, status: Option<&str>) {
         self.status.set_text(status.unwrap_or("Unavailable"));
         self.button.set_sensitive(true);
+    }
+
+    fn set_icon(&self, icon_name: &str) {
+        self.icon.set_icon_name(Some(icon_name));
     }
 
     /// Render a neutral state without inventing a hardware value.
@@ -77,11 +84,12 @@ pub(crate) struct HomeWidgets {
     /// The merged Audio tile.
     pub(crate) audio: HomeTileWidgets,
     pub(crate) power_battery: HomeTileWidgets,
+    pub(crate) system: HomeTileWidgets,
     audio_summary: Rc<RefCell<AudioSummary>>,
 }
 
 impl HomeWidgets {
-    pub(crate) fn new() -> Self {
+    pub(crate) fn new(config: &Config) -> Self {
         let container = Grid::new();
         container.set_column_homogeneous(true);
         container.set_row_spacing(8);
@@ -94,20 +102,23 @@ impl HomeWidgets {
         container.set_vexpand(false);
         container.add_css_class("cc-home-grid");
 
-        let wifi = make_tile("network-wireless-symbolic", "Wi-Fi", "Open Wi-Fi details");
-        let bluetooth =
-            make_tile("bluetooth-active-symbolic", "Bluetooth", "Open Bluetooth details");
-        let audio = make_tile("audio-volume-high-symbolic", "Audio", "Open Audio details");
-        let power_battery = make_tile("battery-symbolic", "Power / Battery", "Open Power details");
+        let wifi = make_tile(&config.wifi_icon, "Wi-Fi", "Open Wi-Fi details");
+        let bluetooth = make_tile(&config.bluetooth_icon, "Bluetooth", "Open Bluetooth details");
+        let audio = make_tile(&config.audio_icon, "Audio", "Open Audio details");
+        let power_battery =
+            make_tile(&config.power_battery_icon, "Power / Battery", "Open Power details");
+        let system = make_tile(&config.system_icon, "System", "Open System details");
 
         // The quick controls below this grid own display actions directly.
         container.attach(wifi.button(), 0, 0, 1, 1);
         container.attach(bluetooth.button(), 1, 0, 1, 1);
         container.attach(audio.button(), 0, 1, 1, 1);
         container.attach(power_battery.button(), 1, 1, 1, 1);
+        container.attach(system.button(), 0, 2, 2, 1);
 
         let audio_summary = Rc::new(RefCell::new(AudioSummary::default()));
-        let widgets = Self { container, wifi, bluetooth, audio, power_battery, audio_summary };
+        let widgets =
+            Self { container, wifi, bluetooth, audio, power_battery, system, audio_summary };
         widgets.render_audio_summary();
         widgets
     }
@@ -151,6 +162,20 @@ impl HomeWidgets {
 
     pub(crate) fn set_power_battery_status(&self, status: Option<&str>) {
         self.power_battery.set_status(status);
+    }
+
+    pub(crate) fn set_system_status(&self, status: Option<&str>) {
+        self.system.set_status(status);
+    }
+
+    /// Apply the configurable primary Home tile icons without rebuilding the
+    /// grid or disturbing any live status/active state.
+    pub(crate) fn apply_config(&self, config: &Config) {
+        self.wifi.set_icon(&config.wifi_icon);
+        self.bluetooth.set_icon(&config.bluetooth_icon);
+        self.audio.set_icon(&config.audio_icon);
+        self.power_battery.set_icon(&config.power_battery_icon);
+        self.system.set_icon(&config.system_icon);
     }
 
     fn render_audio_summary(&self) {
@@ -214,5 +239,5 @@ fn make_tile(icon_name: &str, title: &str, tooltip: &str) -> HomeTileWidgets {
     content.append(&status);
     button.set_child(Some(&content));
 
-    HomeTileWidgets { button, status }
+    HomeTileWidgets { button, icon, status }
 }

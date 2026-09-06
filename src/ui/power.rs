@@ -313,7 +313,6 @@ impl PowerWidgets {
             charge_limit_combo.append(Some(&id), &label);
         }
         charge_limit_combo.set_sensitive(false);
-        charge_limit_combo.set_active_id(Some("100"));
         charge_limit_combo.set_tooltip_text(Some("Select a standard charge limit preset"));
         charge_limit_combo.add_css_class("cc-charge-limit-combo");
         charge_limit_row.append(&charge_limit_label);

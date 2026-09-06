@@ -53,26 +53,44 @@ It focuses on quick scanning, connect/disconnect, live state updates, and themin
 - **Device categories** — icons for audio, phone, computer, input, and other device types
 - **Remove device** — unpair devices via the ⋮ menu
 - **Graceful fallback** — BT tab is hidden if no Bluetooth adapter is detected
+- **Battery reporting** — shows an optional BlueZ device battery percentage when available
 
-### System Controls
+### Audio
 
-- **Brightness & Volume Controls** — dedicated sliders statically pinned to the bottom of the panel,
-  syncing in real-time with system events via `libpulse` and `systemd-logind`
-- **Quick Toggles** — click the Brightness / Volume / Night Mode icons to quick-dim, mute, or toggle Night Mode (Night Mode state is persisted)
-- **Night Mode (Color Temperature)** — dedicated slider to adjust display warmth,
-  powered by Wayland's `wlr-gamma-control` protocol
-- **System Power Controls** — native buttons for Shutdown, Reboot, Suspend, and Logout,
-  with automatic compositor detection (Hyprland, Sway, River)
+- **Output and input selection** — choose the active playback and microphone devices from the Audio detail page
+- **Levels and mute** — adjust output/input levels and mute state with live PulseAudio/PipeWire-Pulse updates
+- **Home summary** — the compact Audio tile shows the current output and input without inventing values when unavailable
+
+### Power, profiles, and display
+
+- **Battery reporting** — shows UPower battery percentage, state, estimates, and energy rate when available
+- **Power profiles** — reads and changes profiles through current power-profiles-daemon endpoints, with legacy compatibility
+- **Charge limit** — applies conservative 50%, 60%, 70%, 80%, 90%, or 100% presets through the standard Linux
+  `charge_control_end_threshold` interface; unsupported or unauthorized systems remain explicit in the UI
+- **Brightness and Night Mode** — Wayland/system-manager controls remain available from Home and their detail page
+- **Session actions** — Shutdown, Reboot, Suspend, and Logout use the existing compositor/session integrations
+
+### Control Center
+
+- **Home layout** — a compact two-column tile grid for Wi-Fi, Bluetooth, Audio, Power/Battery, and System, followed by the persistent quick controls
+- **Media card** — a signal-driven MPRIS card for an eligible Playing or Paused player, with artwork when a supported URI is available and Previous/Play-Pause/Next actions
+- **System dashboard** — generic CPU usage/temperature, RAM, optional swap, root filesystem, aggregate network throughput, uptime, and conditional DRM/GPU metrics
+
+### Quick controls
+
+- **Brightness and volume sliders** — permanently reachable on Home and synchronized with their services
+- **Quick toggles** — the brightness, volume, and Night Mode buttons perform their existing direct actions
+- **Session buttons** — the four power/session actions are evenly distributed below the sliders
 
 ### General
 
-- **Tabbed interface** — switch between WiFi and Bluetooth tabs
-- **Context-aware toggle** — single switch controls WiFi or Bluetooth power based on active tab
+- **Stack navigation** — Home links to isolated Wi-Fi, Bluetooth, Audio, Power, and System detail pages; Wi-Fi also contains Networks/VPN views
+- **Context-aware radio controls** — the existing switch and scan action target the active Wi-Fi or Bluetooth detail page
 - **Daemon mode** — runs as a background process, toggled via CLI flag or D-Bus
 - **Layer-shell overlay** — floating panel with no window decorations, positioned via config
 - **Configurable position** — 9 anchor positions with per-edge margin offsets
 - **Custom CSS theming** — override the default dark theme with your own styles
-- **Customizable signal icons** — configure signal strength icons via config
+- **Configurable icons** — customize the primary Home tiles and brightness/volume/Night Mode controls via config
 - **Forget network** — remove saved connections via the ⋮ menu on each network
 - **Live reload** — reload config and CSS without restarting (`--reload`)
 - **Escape to close** — press Escape to hide the panel
@@ -176,6 +194,8 @@ cargo build --release
 sudo install -Dm755 target/release/wifi-manager /usr/local/bin/wifi-manager
 ```
 
+Selecting a charge limit requests administrator authorization through Polkit.
+
 ## Usage
 
 ```sh
@@ -262,25 +282,47 @@ margin_left = 10
 # Default: Nerd Fonts WiFi icons
 signal_icons = ["󰤟", "󰤢", "󰤥", "󰤨"]
 
-# Custom control icons (Nerd Font / font glyphs)
-# Night Mode toggles:
-# night_mode_off_icon = ""
-# night_mode_on_icon  = ""
-#
-# Power actions:
-# logout_icon   = ""
-# reboot_icon   = ""
-# suspend_icon  = "󰒲"
-# poweroff_icon = ""
+# Primary Control Center tile icons (GTK icon-theme names).
+wifi_icon = "network-wireless-symbolic"
+bluetooth_icon = "bluetooth-active-symbolic"
+audio_icon = "audio-volume-high-symbolic"
+power_battery_icon = "battery-symbolic"
+media_icon = "audio-x-generic-symbolic"
+system_icon = "utilities-system-monitor-symbolic"
+
+# Primary quick-control icons.
+brightness_icon = "display-brightness-symbolic"
+volume_icon = "audio-volume-high-symbolic"
+night_mode_off_icon = ""
+night_mode_on_icon = ""
+
+# Network row icons (font glyphs or other text accepted by the row widgets).
+lock_icon = "󰌾"
+saved_icon = ""
+
+# Session power actions (font glyphs).
+logout_icon = ""
+reboot_icon = ""
+suspend_icon = "󰒲"
+poweroff_icon = ""
 
 # Whether to show the panel immediately when the daemon starts (default: false)
 show_on_start = false
+
+# Last successfully applied standard charge limit (50, 60, 70, 80, 90, or 100).
+# This is written by the app after a verified change; it is not a live reading.
+# charge_limit = 80
 
 # Alternative examples:
 # signal_icons = ["▂___", "▂▄__", "▂▄▆_", "▂▄▆█"]
 ```
 
 > **Note:** Margins only apply to edges the window is anchored to. For example, with `top-left`, only `margin_top` and `margin_left` have an effect. With `center`, no margins apply.
+
+Every field is optional; omitted icon fields use the defaults shown above. Dynamic icons such as Wi-Fi strength,
+battery charge state, and device-specific audio status continue to come from their live services. `charge_limit` is
+only a remembered, validated preset: live hardware state takes precedence, and an invalid or unsupported saved value
+is ignored. Use `wifi-manager --reload` to reload configuration and the user CSS while the daemon is running.
 
 **Signal Icon Ranges:**
 
@@ -313,7 +355,10 @@ src/
 ├── process.rs               # Asynchronous subprocess boundary
 ├── domain/                  # Pure models and deterministic classification rules
 │   ├── network.rs           # Network, SecurityType, Band
-│   ├── bluetooth.rs         # BluetoothDevice and DeviceCategory
+│   ├── bluetooth.rs         # BluetoothDevice, DeviceCategory, optional battery
+│   ├── media.rs             # MPRIS metadata, arbitration, capabilities
+│   ├── power.rs             # Battery and power-profile snapshots
+│   ├── system.rs            # Generic Linux metrics and counter math
 │   └── vpn.rs               # VPN profile and active-state models
 ├── app/
 │   ├── mod.rs               # Application composition and event dispatch
@@ -323,6 +368,9 @@ src/
 │   ├── live_updates.rs      # WiFi D-Bus signal subscriptions
 │   ├── bluetooth.rs         # Bluetooth controller (scan, connect, power)
 │   ├── bt_live_updates.rs   # Bluetooth D-Bus signal subscriptions
+│   ├── media.rs             # Signal-driven MPRIS controller
+│   ├── system.rs            # Background /proc and sysfs metric collector
+│   ├── system_power.rs      # Battery, charge-limit, and profile controller
 │   ├── controls.rs          # Wires GTK controls UI to backend managers
 │   └── shortcuts.rs         # Keyboard shortcuts and hot-reload
 ├── controls/
@@ -337,11 +385,18 @@ src/
 │   ├── connection.rs        # NM connection settings builders
 │   ├── bluez_proxies.rs     # BlueZ D-Bus proxy traits (Adapter1, Device1)
 │   ├── bluetooth_manager.rs # High-level Bluetooth operations
+│   ├── media.rs             # MPRIS session-bus adapters
+│   ├── power.rs              # UPower and power-profiles-daemon adapters
 │   └── vpn_manager.rs       # NetworkManager VPN/WireGuard operations
 └── ui/
-    ├── window.rs            # Layer-shell window setup, tab stack
+    ├── window.rs            # Layer-shell window and root detail stack
     ├── header.rs            # Header bar with tab switcher
-    ├── controls_panel.rs    # Brightness and Volume sliders (footer)
+    ├── home.rs              # Compact tile grid and typed Home handles
+    ├── controls_panel.rs    # Persistent Brightness/Volume/Night Mode/session controls
+    ├── audio.rs             # Audio output/input detail widgets
+    ├── media.rs             # Home MPRIS card widgets
+    ├── power.rs             # Battery, charge-limit, and profile widgets
+    ├── system.rs            # System metric detail widgets
     ├── network_list.rs      # WiFi network list
     ├── network_row.rs       # WiFi network row widget
     ├── device_list.rs       # Bluetooth device list

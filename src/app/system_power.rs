@@ -14,6 +14,7 @@ use std::rc::Rc;
 use std::sync::mpsc::{self, TryRecvError};
 use std::time::Duration;
 
+use crate::config::Config;
 use crate::dbus::power::{BatteryManager, PowerProfileManager};
 use crate::domain::power::{
     BatterySnapshot, PowerProfileSnapshot, battery_status_label, profile_status_label,
@@ -37,12 +38,25 @@ pub(crate) fn setup(widgets: &PanelWidgets) {
     let state = Rc::new(RefCell::new(PowerUiState::default()));
     let combo_update = Rc::new(Cell::new(false));
     let charge_limit = ChargeLimitController::new("/sys/class/power_supply");
+    let saved_charge_limit = Config::load().saved_charge_limit();
 
     render_battery(&view, &home, BatterySnapshot::unavailable(), false);
     render_profiles(&view, &state, PowerProfileSnapshot::unavailable(), &combo_update);
     let charge_limit_status = charge_limit.status();
-    render_charge_limit(&view, &charge_limit_status, &combo_update);
-    wire_charge_limit_action(&view, charge_limit, charge_limit_status, combo_update.clone());
+    render_charge_limit(
+        &view,
+        &charge_limit_status,
+        saved_charge_limit,
+        saved_charge_limit,
+        &combo_update,
+    );
+    wire_charge_limit_action(
+        &view,
+        charge_limit,
+        charge_limit_status,
+        saved_charge_limit,
+        combo_update.clone(),
+    );
 
     let battery_view = view.clone();
     let battery_home = home.clone();
@@ -220,11 +234,19 @@ fn render_profiles(
     combo_update.set(false);
 }
 
-fn render_charge_limit(view: &PowerWidgets, status: &ChargeLimitStatus, combo_update: &Cell<bool>) {
+fn render_charge_limit(
+    view: &PowerWidgets,
+    status: &ChargeLimitStatus,
+    saved_limit: Option<u8>,
+    preferred_limit: Option<u8>,
+    combo_update: &Cell<bool>,
+) {
     combo_update.set(true);
     match status {
         ChargeLimitStatus::Supported(current) => {
-            view.charge_limit_combo.set_active_id(Some(&current.to_string()));
+            if !view.charge_limit_combo.set_active_id(Some(&current.to_string())) {
+                view.charge_limit_combo.set_active(None);
+            }
             view.charge_limit_combo.set_sensitive(true);
             if *current == 100 {
                 view.charge_limit_status.set_text("Current limit: 100% (no limit)");
@@ -244,12 +266,30 @@ fn render_charge_limit(view: &PowerWidgets, status: &ChargeLimitStatus, combo_up
             view.charge_limit_status.set_text("Not supported by the available power supplies");
         }
         ChargeLimitStatus::PermissionRequired => {
-            if view.charge_limit_combo.active_id().is_none() {
-                view.charge_limit_combo.set_active_id(Some("100"));
+            let display_limit = preferred_limit
+                .or(saved_limit)
+                .filter(|value| CHARGE_LIMIT_PRESETS.contains(value));
+            if let Some(display_limit) = display_limit {
+                view.charge_limit_combo.set_active_id(Some(&display_limit.to_string()));
+            } else {
+                view.charge_limit_combo.set_active(None);
             }
             view.charge_limit_combo.set_sensitive(true);
-            view.charge_limit_status
-                .set_text("Choose a limit; administrator authorization will be requested");
+            if saved_limit == display_limit {
+                if let Some(display_limit) = display_limit {
+                    view.charge_limit_status.set_text(&format!(
+                        "Saved limit: {display_limit}%; current value unavailable this session. Choose a preset to request authorization"
+                    ));
+                } else {
+                    view.charge_limit_status.set_text(
+                        "Current limit unavailable; choose a preset to request administrator authorization",
+                    );
+                }
+            } else {
+                view.charge_limit_status.set_text(
+                    "Choose a preset to request administrator authorization; current value is unavailable this session",
+                );
+            }
         }
         ChargeLimitStatus::Error(error) => {
             view.charge_limit_combo.set_active(None);
@@ -264,12 +304,17 @@ fn wire_charge_limit_action(
     view: &PowerWidgets,
     controller: ChargeLimitController,
     initial_status: ChargeLimitStatus,
+    saved_limit: Option<u8>,
     combo_update: Rc<Cell<bool>>,
 ) {
     let view = view.clone();
     let confirmed = Rc::new(RefCell::new(initial_status));
     let selected = Rc::new(RefCell::new(
-        view.charge_limit_combo.active_id().and_then(|id| id.parse::<u8>().ok()),
+        view.charge_limit_combo
+            .active_id()
+            .and_then(|id| id.parse::<u8>().ok())
+            .filter(|value| CHARGE_LIMIT_PRESETS.contains(value))
+            .or(saved_limit),
     ));
     let combo = view.charge_limit_combo.clone();
 
@@ -300,27 +345,39 @@ fn wire_charge_limit_action(
                 Rc::clone(&combo_update),
                 requested,
                 previous,
+                saved_limit,
             );
             return;
         }
 
         // Restore the last reread value until the write and verification
         // complete; the control never claims success optimistically.
-        render_charge_limit(&view, &current_status, &combo_update);
+        render_charge_limit(&view, &current_status, saved_limit, previous, &combo_update);
         view.charge_limit_combo.set_sensitive(false);
         view.charge_limit_status.set_text(&format!("Applying charge limit {requested}%…"));
 
         match controller.set_limit(requested) {
             Ok(status) => {
                 *confirmed.borrow_mut() = status.clone();
-                if let ChargeLimitStatus::Supported(current) = status {
-                    *selected.borrow_mut() = Some(current);
-                }
-                render_charge_limit(&view, &status, &combo_update);
+                let display_limit = match &status {
+                    ChargeLimitStatus::Supported(current) => {
+                        *selected.borrow_mut() = Some(*current);
+                        Some(*current)
+                    }
+                    _ => {
+                        *selected.borrow_mut() = previous;
+                        previous
+                    }
+                };
+                render_charge_limit(&view, &status, saved_limit, display_limit, &combo_update);
                 if let ChargeLimitStatus::Supported(current) = status {
                     if current == requested {
-                        view.charge_limit_status
-                            .set_text(&format!("Charge limit set to {requested}%"));
+                        view.charge_limit_status.set_text(&match Config::persist_charge_limit(requested) {
+                            Ok(()) => format!("Charge limit set to {requested}%"),
+                            Err(error) => format!(
+                                "Charge limit set to {requested}%, but could not save preference: {error}"
+                            ),
+                        });
                     } else {
                         view.charge_limit_status.set_text(&format!(
                             "Requested {requested}%, but the power supply reports {current}%"
@@ -332,13 +389,14 @@ fn wire_charge_limit_action(
                 let status = controller.status();
                 *confirmed.borrow_mut() = status.clone();
                 restore_charge_limit_selection(&view, previous, &combo_update);
-                render_charge_limit(&view, &status, &combo_update);
+                render_charge_limit(&view, &status, saved_limit, previous, &combo_update);
                 view.charge_limit_status.set_text(&format!("Could not set charge limit: {error}"));
             }
         }
     });
 }
 
+#[allow(clippy::too_many_arguments)]
 fn request_charge_limit_authorization(
     view: &PowerWidgets,
     controller: ChargeLimitController,
@@ -347,6 +405,7 @@ fn request_charge_limit_authorization(
     combo_update: Rc<Cell<bool>>,
     requested: u8,
     previous: Option<u8>,
+    saved_limit: Option<u8>,
 ) {
     let executable = match std::env::current_exe() {
         Ok(executable) => executable,
@@ -357,7 +416,7 @@ fn request_charge_limit_authorization(
             restore_charge_limit_selection(view, previous, &combo_update);
             let status = controller.status();
             *confirmed.borrow_mut() = status.clone();
-            render_charge_limit(view, &status, &combo_update);
+            render_charge_limit(view, &status, saved_limit, previous, &combo_update);
             return;
         }
     };
@@ -387,19 +446,34 @@ fn request_charge_limit_authorization(
                 ChargeLimitStatus::PermissionRequired => {
                     *selected.borrow_mut() = Some(requested);
                     restore_charge_limit_selection(&view, Some(requested), &combo_update);
-                    render_charge_limit(&view, &status, &combo_update);
+                    render_charge_limit(
+                        &view,
+                        &status,
+                        saved_limit,
+                        Some(requested),
+                        &combo_update,
+                    );
                     view.charge_limit_combo.set_sensitive(true);
-                    view.charge_limit_status.set_text(&format!(
-                        "Verified at {requested}%; choose another limit to request authorization"
-                    ));
+                    view.charge_limit_status.set_text(&match Config::persist_charge_limit(requested) {
+                        Ok(()) => format!(
+                            "Verified at {requested}%; choose another limit to request authorization"
+                        ),
+                        Err(error) => format!(
+                            "Verified at {requested}%, but could not save preference: {error}"
+                        ),
+                    });
                 }
                 ChargeLimitStatus::Supported(current) => {
                     *selected.borrow_mut() = Some(*current);
                     restore_charge_limit_selection(&view, Some(*current), &combo_update);
-                    render_charge_limit(&view, &status, &combo_update);
+                    render_charge_limit(&view, &status, saved_limit, Some(*current), &combo_update);
                     if *current == requested {
-                        view.charge_limit_status
-                            .set_text(&format!("Authorized; charge limit verified at {current}%"));
+                        view.charge_limit_status.set_text(&match Config::persist_charge_limit(requested) {
+                            Ok(()) => format!("Authorized; charge limit verified at {current}%"),
+                            Err(error) => format!(
+                                "Authorized; charge limit verified at {current}%, but could not save preference: {error}"
+                            ),
+                        });
                     } else {
                         view.charge_limit_status.set_text(&format!(
                             "Authorized, but the power supply reports {current}% instead of {requested}%"
@@ -408,7 +482,7 @@ fn request_charge_limit_authorization(
                 }
                 _ => {
                     *selected.borrow_mut() = None;
-                    render_charge_limit(&view, &status, &combo_update);
+                    render_charge_limit(&view, &status, saved_limit, None, &combo_update);
                 }
             }
             glib::ControlFlow::Break
@@ -418,7 +492,7 @@ fn request_charge_limit_authorization(
             *confirmed.borrow_mut() = status.clone();
             *selected.borrow_mut() = previous;
             restore_charge_limit_selection(&view, previous, &combo_update);
-            render_charge_limit(&view, &status, &combo_update);
+            render_charge_limit(&view, &status, saved_limit, previous, &combo_update);
             view.charge_limit_status.set_text("Authorization was cancelled or the helper failed");
             glib::ControlFlow::Break
         }
@@ -427,7 +501,7 @@ fn request_charge_limit_authorization(
             *confirmed.borrow_mut() = status.clone();
             *selected.borrow_mut() = previous;
             restore_charge_limit_selection(&view, previous, &combo_update);
-            render_charge_limit(&view, &status, &combo_update);
+            render_charge_limit(&view, &status, saved_limit, previous, &combo_update);
             view.charge_limit_status
                 .set_text(&format!("Could not request administrator authorization: {error}"));
             glib::ControlFlow::Break
@@ -438,7 +512,7 @@ fn request_charge_limit_authorization(
             *confirmed.borrow_mut() = status.clone();
             *selected.borrow_mut() = previous;
             restore_charge_limit_selection(&view, previous, &combo_update);
-            render_charge_limit(&view, &status, &combo_update);
+            render_charge_limit(&view, &status, saved_limit, previous, &combo_update);
             view.charge_limit_status.set_text("Authorization helper exited unexpectedly");
             glib::ControlFlow::Break
         }

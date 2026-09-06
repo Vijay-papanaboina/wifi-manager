@@ -449,7 +449,8 @@ fn render_display_controls(
     scale_update.set(true);
     display.scale.set_value(volume);
     scale_update.set(false);
-    display.button.set_icon_name(icon);
+    // The quick-control button keeps the user-configured primary icon. The
+    // hidden image remains state-driven for existing callback/API wiring.
     display.icon.set_icon_name(Some(icon));
 }
 
