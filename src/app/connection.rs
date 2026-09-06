@@ -10,7 +10,7 @@ use crate::domain::network::SecurityType;
 use crate::ui::network_list;
 use crate::ui::window::PanelWidgets;
 
-use super::{AppState, get_wifi, refresh_list};
+use super::{AppState, get_wifi, refresh_list, set_wifi_status};
 
 /// Wire the WiFi toggle switch (only when WiFi tab is active).
 pub(super) fn setup_wifi_toggle(widgets: &PanelWidgets, state: Rc<RefCell<AppState>>) {
@@ -35,13 +35,13 @@ pub(super) fn setup_wifi_toggle(widgets: &PanelWidgets, state: Rc<RefCell<AppSta
             match result {
                 Ok(_) => {
                     if enabled {
-                        status.set_text("WiFi enabled");
+                        set_wifi_status(&state, &status, "WiFi enabled");
                         glib::timeout_future(std::time::Duration::from_millis(2000)).await;
                         let _ = wifi.request_scan().await;
                         glib::timeout_future(std::time::Duration::from_millis(1500)).await;
                         refresh_list(&state, &list_box, &status).await;
                     } else {
-                        status.set_text("WiFi disabled");
+                        set_wifi_status(&state, &status, "WiFi disabled");
                         let config = crate::config::Config::load();
                         let empty_pending = std::collections::HashMap::new();
                         let on_forget = std::rc::Rc::new(|_ssid: String| {});
@@ -57,7 +57,7 @@ pub(super) fn setup_wifi_toggle(widgets: &PanelWidgets, state: Rc<RefCell<AppSta
                 }
                 Err(e) => {
                     log::error!("WiFi toggle failed: {e}");
-                    status.set_text("Toggle failed");
+                    set_wifi_status(&state, &status, "Toggle failed");
                 }
             }
         });
@@ -106,7 +106,7 @@ pub(super) fn setup_network_click(widgets: &PanelWidgets, state: Rc<RefCell<AppS
                     let mut st = state.borrow_mut();
                     st.wifi_pending.insert(ssid.to_string(), pending_label.to_string());
                 }
-                status.set_text(&format!("{} {}...", status_prefix, ssid));
+                set_wifi_status(state, status, &format!("{} {}...", status_prefix, ssid));
                 glib::spawn_future_local({
                     let state = Rc::clone(state);
                     let list_box = list_box.clone();
@@ -151,7 +151,7 @@ pub(super) fn setup_network_click(widgets: &PanelWidgets, state: Rc<RefCell<AppS
                     }
                     Err(e) => {
                         log::error!("Disconnect failed: {e}");
-                        status.set_text("Disconnect failed");
+                        set_wifi_status(&state, &status, "Disconnect failed");
                         clear_pending(&state, &list_box, &status, &network.ssid);
                     }
                 }
@@ -173,7 +173,7 @@ pub(super) fn setup_network_click(widgets: &PanelWidgets, state: Rc<RefCell<AppS
                     }
                     Err(e) => {
                         log::error!("Connect failed: {e}");
-                        status.set_text(&format!("Failed: {}", e));
+                        set_wifi_status(&state, &status, &format!("Failed: {}", e));
                         clear_pending(&state, &list_box, &status, &network.ssid);
                     }
                 }
@@ -249,7 +249,7 @@ pub(super) fn setup_password_actions(widgets: &PanelWidgets, state: Rc<RefCell<A
                     let mut st = state.borrow_mut();
                     st.wifi_pending.insert(network.ssid.clone(), "Connecting".to_string());
                 }
-                status.set_text(&format!("Connecting to {}...", network.ssid));
+                set_wifi_status(&state, &status, &format!("Connecting to {}...", network.ssid));
                 refresh_list(&state, &list_box, &status).await;
 
                 match wifi.connect_to_network(&network, Some(&password)).await {

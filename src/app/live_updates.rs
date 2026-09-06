@@ -6,9 +6,50 @@ use std::rc::Rc;
 use gtk4::glib;
 use gtk4::prelude::*;
 
-use crate::ui::window::PanelWidgets;
+use crate::dbus::network_manager::WifiManager;
+use crate::ui::{
+    home::{HomeWidgets, TileState},
+    window::PanelWidgets,
+};
 
 use super::{AppState, get_wifi, refresh_list};
+
+/// Refresh only the Home Wi-Fi tile from the current NetworkManager snapshot.
+///
+/// The compatibility status sink belongs to whichever detail page is active,
+/// so Home updates use their own typed handle and never affect Wi-Fi or
+/// Bluetooth detail status text.
+async fn refresh_home_wifi_snapshot(wifi: &WifiManager, home: &HomeWidgets) {
+    let enabled = match wifi.is_wifi_enabled().await {
+        Ok(enabled) => enabled,
+        Err(error) => {
+            log::warn!("Failed to read Wi-Fi state for Home: {error}");
+            home.set_wifi_enabled(false);
+            home.wifi.set_state(TileState::Unavailable);
+            return;
+        }
+    };
+
+    home.set_wifi_enabled(enabled);
+    if !enabled {
+        home.set_wifi_status(Some("Wi-Fi disabled"));
+        return;
+    }
+
+    match wifi.get_networks().await {
+        Ok(networks) => {
+            if let Some(network) = networks.iter().find(|network| network.is_connected) {
+                home.set_wifi_status(Some(&format!("Connected to {}", network.ssid)));
+            } else {
+                home.set_wifi_status(Some("Wi-Fi enabled"));
+            }
+        }
+        Err(error) => {
+            log::warn!("Failed to read Wi-Fi networks for Home: {error}");
+            home.wifi.set_state(TileState::Unavailable);
+        }
+    }
+}
 
 /// Subscribe to NM D-Bus signals for live state updates.
 ///
@@ -26,6 +67,7 @@ pub(super) fn setup_live_updates(
     let status = widgets.status_label.clone();
     let switch = widgets.wifi_switch.clone();
     let wifi_tab = widgets.wifi_tab.clone();
+    let home = widgets.home.clone();
 
     // Subscribe to Device.StateChanged signal
     {
@@ -34,6 +76,7 @@ pub(super) fn setup_live_updates(
         let status = status.clone();
         let switch = switch.clone();
         let wifi_tab = wifi_tab.clone();
+        let home = home.clone();
 
         glib::spawn_future_local(async move {
             let wifi = get_wifi(&state);
@@ -100,6 +143,10 @@ pub(super) fn setup_live_updates(
                         "StateChanged: disconnected while hidden — bg reconnect loop started"
                     );
                 }
+
+                // Keep Home current even while another detail page owns the
+                // compatibility switch and status sink.
+                refresh_home_wifi_snapshot(&wifi, &home).await;
 
                 // Update WiFi switch state
                 if wifi_tab.is_active() {

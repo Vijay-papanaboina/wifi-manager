@@ -24,6 +24,7 @@ pub(crate) struct PendingVpnAction {
 /// Top-level page that currently owns the shared header status label.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum ActiveTab {
+    None,
     Wifi,
     Bluetooth,
 }

@@ -6,7 +6,6 @@ use std::rc::Rc;
 use crate::config::Config;
 use crate::controls::brightness::BrightnessManager;
 use crate::controls::night_mode::NightModeManager;
-use crate::controls::volume::VolumeManager;
 use crate::state::AppStateStore;
 use crate::ui::{controls_panel, window::PanelWidgets};
 
@@ -64,9 +63,6 @@ pub(crate) fn setup_controls(widgets: &PanelWidgets) {
     });
     let brightness_scale = widgets.controls.brightness_scale().clone();
     let brightness_btn = widgets.controls.brightness_btn().clone();
-    let volume_scale = widgets.controls.volume_scale().clone();
-    let volume_icon = widgets.controls.volume_icon().clone();
-    let volume_btn = widgets.controls.volume_btn().clone();
     let night_mode_scale = widgets.controls.night_mode_scale().clone();
     let night_mode_btn = widgets.controls.night_mode_btn().clone();
 
@@ -151,65 +147,6 @@ pub(crate) fn setup_controls(widgets: &PanelWidgets) {
             Err(e) => log::error!("Failed to initialize BrightnessManager: {}", e),
         }
     });
-
-    // ── Volume ───────────────────────────────────────────────────
-    let v_scale = volume_scale.clone();
-    v_scale.set_format_value_func(percent_formatter);
-    let v_icon = volume_icon.clone();
-    let v_btn = volume_btn.clone();
-    let handler_id: Rc<RefCell<Option<glib::SignalHandlerId>>> = Rc::new(RefCell::new(None));
-    let handler_id_cb = handler_id.clone();
-
-    let is_muted = Rc::new(Cell::new(false));
-    let is_muted_cb = Rc::clone(&is_muted);
-
-    match VolumeManager::new(
-        move |state| {
-            if let Some(id) = handler_id_cb.borrow().as_ref() {
-                v_scale.block_signal(id);
-            }
-            v_scale.set_value(state.percent);
-            if let Some(id) = handler_id_cb.borrow().as_ref() {
-                v_scale.unblock_signal(id);
-            }
-
-            is_muted_cb.set(state.muted);
-
-            let icon_name = if state.muted {
-                "audio-volume-muted-symbolic"
-            } else if state.percent < 33.0 {
-                "audio-volume-low-symbolic"
-            } else if state.percent < 66.0 {
-                "audio-volume-medium-symbolic"
-            } else {
-                "audio-volume-high-symbolic"
-            };
-            v_icon.set_icon_name(Some(icon_name));
-            v_btn.set_icon_name(icon_name);
-        },
-        move |result| match result {
-            Ok(_) => log::info!("Volume control connected successfully"),
-            Err(e) => log::error!("Failed to connect Volume controls: {}", e),
-        },
-    ) {
-        Ok(manager) => {
-            let mgr = Rc::clone(&manager);
-
-            // ── Volume icon button: toggle mute ──────────────────────
-            volume_btn.connect_clicked(move |_| {
-                let new_mute = !is_muted.get();
-                mgr.set_mute(new_mute);
-            });
-
-            // Listen for UI slider changes -> tell backend
-            let id = volume_scale.connect_value_changed(move |scale: &gtk4::Scale| {
-                let val = scale.value();
-                manager.set_volume_percent(val);
-            });
-            *handler_id.borrow_mut() = Some(id);
-        }
-        Err(e) => log::error!("Failed to init VolumeManager: {}", e),
-    }
 
     // ── Night Mode ───────────────────────────────────────────────
     let n_scale = night_mode_scale.clone();

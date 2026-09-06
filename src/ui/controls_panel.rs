@@ -1,14 +1,8 @@
 use futures_util::future::LocalBoxFuture;
-use gtk4::{
-    Box, Button, Image, Label, Orientation, Revealer, RevealerTransitionType, Scale, ToggleButton,
-    Window, glib, prelude::*,
-};
+use gtk4::{Box, Button, Image, Label, Orientation, Scale, Window, glib, prelude::*};
 
 use crate::config::Config;
 use crate::error::AppResult;
-
-/// Duration of the slider reveal animation in milliseconds
-pub(crate) const SLIDE_TRANSITION_MS: u32 = 250;
 
 fn set_pointer_cursor<W: IsA<gtk4::Widget>>(widget: &W) {
     if let Some(cursor) = gtk4::gdk::Cursor::from_name("pointer", None) {
@@ -124,9 +118,9 @@ pub(crate) struct PowerActions {
 
 /// The unified panel for Brightness, Volume, and Night Mode controls.
 #[derive(Clone)]
-#[allow(dead_code)]
 pub(crate) struct ControlsPanel {
-    container: Box,
+    display_page: Box,
+    power_page: Box,
     brightness_scale: Scale,
     brightness_btn: Button,
     volume_scale: Scale,
@@ -134,7 +128,6 @@ pub(crate) struct ControlsPanel {
     volume_btn: Button,
     night_mode_scale: Scale,
     night_mode_btn: Button,
-    toggle_button: ToggleButton,
     poweroff_btn: Button,
     reboot_btn: Button,
     suspend_btn: Button,
@@ -148,8 +141,13 @@ impl Default for ControlsPanel {
 }
 
 impl ControlsPanel {
-    pub(crate) fn container(&self) -> &Box {
-        &self.container
+    /// Detail-page container for brightness, volume, and Night Mode.
+    pub(crate) fn display_page(&self) -> &Box {
+        &self.display_page
+    }
+    /// Detail-page container for poweroff, reboot, suspend, and logout.
+    pub(crate) fn power_page(&self) -> &Box {
+        &self.power_page
     }
     pub(crate) fn brightness_scale(&self) -> &Scale {
         &self.brightness_scale
@@ -172,10 +170,6 @@ impl ControlsPanel {
     pub(crate) fn night_mode_btn(&self) -> &Button {
         &self.night_mode_btn
     }
-    pub(crate) fn toggle_button(&self) -> &ToggleButton {
-        &self.toggle_button
-    }
-
     /// Apply configuration values that can change without rebuilding widgets.
     pub(crate) fn apply_config(&self, config: &Config) {
         let night_mode_icon = if self.night_mode_scale.is_sensitive() {
@@ -220,49 +214,28 @@ impl ControlsPanel {
 
     pub(crate) fn new() -> Self {
         let config = Config::load();
-        let container = Box::builder()
+        let display_page = Box::builder()
             .orientation(Orientation::Vertical)
             .spacing(12)
-            .margin_top(8)
+            .margin_top(4)
             .margin_bottom(0) // Let inner elements dictate bottom spacing
-            .margin_start(16)
-            .margin_end(16)
+            .margin_start(0)
+            .margin_end(0)
             .css_classes(["controls-panel"])
             .build();
 
-        // Toggle Button for collapsing/expanding
-        let toggle_button = ToggleButton::builder()
-            .icon_name("pan-down-symbolic")
-            .halign(gtk4::Align::Center)
-            .margin_bottom(8) // Add some breathing room below the button itself
-            .tooltip_text("Show/Hide Controls")
+        let power_page = Box::builder()
+            .orientation(Orientation::Vertical)
+            .spacing(12)
+            .margin_top(4)
+            .margin_bottom(0)
+            .margin_start(0)
+            .margin_end(0)
+            .css_classes(["controls-panel", "cc-power-controls"])
             .build();
-        set_pointer_cursor(&toggle_button);
-        toggle_button.add_css_class("flat");
-        toggle_button.add_css_class("circular");
 
-        // The container holding all the sliders
+        // The container holding all always-visible quick controls.
         let sliders_box = Box::builder().orientation(Orientation::Vertical).spacing(12).build();
-
-        // Revealer to animate the sliders box
-        let revealer = Revealer::builder()
-            .transition_type(RevealerTransitionType::SlideDown)
-            .transition_duration(SLIDE_TRANSITION_MS)
-            .child(&sliders_box)
-            .reveal_child(false) // Start collapsed
-            .build();
-
-        // ── Connect toggle button to revealer ──
-        let r_clone = revealer.clone();
-        toggle_button.connect_toggled(move |btn| {
-            let active = btn.is_active();
-            r_clone.set_reveal_child(active);
-            if active {
-                btn.set_icon_name("pan-up-symbolic");
-            } else {
-                btn.set_icon_name("pan-down-symbolic");
-            }
-        });
 
         // Brightness Row
         let brightness_row =
@@ -348,10 +321,11 @@ impl ControlsPanel {
         // Power Controls Row
         let power_row = Box::builder()
             .orientation(Orientation::Horizontal)
-            .spacing(36) // Larger gap between buttons
-            .halign(gtk4::Align::Center)
-            .margin_top(12)
-            .margin_bottom(12) // Gap from the bottom window edge
+            .spacing(0)
+            .hexpand(true)
+            .homogeneous(true)
+            .margin_top(6)
+            .margin_bottom(6)
             .css_classes(["power-row"])
             .build();
 
@@ -363,6 +337,11 @@ impl ControlsPanel {
 
         let btn_logout = make_glyph_button(&config.logout_icon, "Log Out");
 
+        for button in [&btn_logout, &btn_suspend, &btn_reboot, &btn_poweroff] {
+            button.set_hexpand(true);
+            button.set_halign(gtk4::Align::Fill);
+        }
+
         power_row.append(&btn_logout);
         power_row.append(&btn_suspend);
         power_row.append(&btn_reboot);
@@ -372,14 +351,15 @@ impl ControlsPanel {
         sliders_box.append(&brightness_row);
         sliders_box.append(&volume_row);
         sliders_box.append(&night_mode_row);
-        sliders_box.append(&power_row);
 
-        // Assemble main container logic
-        container.append(&toggle_button); // Pin button above
-        container.append(&revealer); // Let sliders drop below
+        // Keep one ControlsPanel handle for existing app wiring while making
+        // all high-frequency controls permanently reachable from Home.
+        display_page.append(&sliders_box);
+        power_page.append(&power_row);
 
         Self {
-            container,
+            display_page,
+            power_page,
             brightness_scale,
             brightness_btn,
             volume_scale,
@@ -387,7 +367,6 @@ impl ControlsPanel {
             volume_btn,
             night_mode_scale,
             night_mode_btn,
-            toggle_button,
             poweroff_btn: btn_poweroff,
             reboot_btn: btn_reboot,
             suspend_btn: btn_suspend,

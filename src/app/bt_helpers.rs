@@ -12,7 +12,7 @@ use gtk4::glib;
 use crate::dbus::bluetooth_manager::BluetoothManager;
 use crate::ui::device_list;
 
-use super::AppState;
+use super::{AppState, set_bluetooth_status};
 
 /// Extract BluetoothManager from AppState.
 pub(super) fn get_bt(state: &Rc<RefCell<AppState>>) -> Option<BluetoothManager> {
@@ -43,10 +43,12 @@ pub(super) fn clear_bt_list(
         no_op_remove(),
         no_op_menu_active(),
     );
-    let mut st = state.borrow_mut();
-    st.bt_row_paths = row_paths;
-    st.bt_devices.clear();
-    status.set_text(status_text);
+    {
+        let mut st = state.borrow_mut();
+        st.bt_row_paths = row_paths;
+        st.bt_devices.clear();
+    }
+    set_bluetooth_status(state, status, status_text);
 }
 
 /// Build the callback that handles "Unpair device" from the row context menu.
@@ -66,7 +68,7 @@ pub(super) fn build_remove_callback(
         let status = status.clone();
         let bt = bt.clone();
         glib::spawn_future_local(async move {
-            status.set_text("Unpairing device...");
+            set_bluetooth_status(&state, &status, "Unpairing device...");
             {
                 let mut st = state.borrow_mut();
                 st.bt_pending.insert(device_path.clone(), "Unpairing".to_string());
@@ -74,7 +76,7 @@ pub(super) fn build_remove_callback(
             refresh_bt_list(&state, &list_box, &status).await;
             match bt.remove_device(&device_path).await {
                 Ok(_) => {
-                    status.set_text("Device unpaired");
+                    set_bluetooth_status(&state, &status, "Device unpaired");
                     {
                         let mut st = state.borrow_mut();
                         st.bt_pending.remove(&device_path);
@@ -83,7 +85,7 @@ pub(super) fn build_remove_callback(
                 }
                 Err(e) => {
                     log::error!("Remove failed: {e}");
-                    status.set_text(&format!("Failed to unpair: {}", e));
+                    set_bluetooth_status(&state, &status, &format!("Failed to unpair: {}", e));
                     {
                         let mut st = state.borrow_mut();
                         st.bt_pending.remove(&device_path);
@@ -168,8 +170,10 @@ pub(super) async fn refresh_bt_list(
 
             let connected = devices.iter().find(|d| d.connected);
             match connected {
-                Some(d) => status.set_text(&format!("Connected to {}", d.display_name)),
-                None => status.set_text("Not connected"),
+                Some(d) => {
+                    set_bluetooth_status(state, status, &format!("Connected to {}", d.display_name))
+                }
+                None => set_bluetooth_status(state, status, "Not connected"),
             }
 
             let on_remove = build_remove_callback(state, list_box, status, &bt);
@@ -190,7 +194,7 @@ pub(super) async fn refresh_bt_list(
                 return;
             }
             log::error!("Failed to get BT devices: {e}");
-            status.set_text("Failed to load devices");
+            set_bluetooth_status(state, status, "Failed to load devices");
         }
     }
 }

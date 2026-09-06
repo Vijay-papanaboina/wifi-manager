@@ -1,10 +1,13 @@
+pub(crate) mod audio;
 pub(crate) mod controls_panel;
 pub(crate) mod device_list;
 pub(crate) mod device_row;
 pub(crate) mod header;
+pub(crate) mod home;
 pub(crate) mod network_list;
 pub(crate) mod network_row;
 pub(crate) mod password_dialog;
+pub(crate) mod power;
 pub(crate) mod vpn_list;
 pub(crate) mod vpn_row;
 pub(crate) mod window;

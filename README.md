@@ -328,7 +328,7 @@ src/
 ├── controls/
 │   ├── mod.rs               # Entry point for backend controls
 │   ├── brightness.rs        # BrightnessManager (systemd-logind + sysfs)
-│   ├── volume.rs            # VolumeManager (libpulse-binding)
+│   ├── audio.rs             # AudioManager (libpulse-binding)
 │   ├── night_mode.rs        # NightModeManager (Wayland wlr-gamma-control)
 │   └── power.rs             # PowerManager (systemctl + Compositor exit)
 ├── dbus/

@@ -1,18 +1,22 @@
-//! Main floating panel window with layer-shell support.
+//! Main floating Control Center window with layer-shell support.
 //!
-//! Composes the header, network list, Bluetooth device list, and password
-//! dialog into the panel. Uses a GtkStack to switch between Wi-Fi and
-//! Bluetooth views based on the header tab selection.
+//! The root stack owns the reusable home page and the Wi-Fi, Bluetooth,
+//! and Power detail pages.  Legacy Wi-Fi/Bluetooth toggle handles
+//! remain in `PanelWidgets` so existing async controllers keep their active
+//! feature guards while navigation is handled by the stack.
 
 use gtk4::prelude::*;
 use gtk4::{
-    Application, ApplicationWindow, Box as GtkBox, CssProvider, ListBox, Orientation, Stack,
-    StackTransitionType, ToggleButton, gdk,
+    Application, ApplicationWindow, Box as GtkBox, Button, CssProvider, Label, ListBox,
+    Orientation, Stack, StackTransitionType, ToggleButton, gdk,
 };
 use gtk4_layer_shell::{Edge, KeyboardMode, Layer, LayerShell};
 use std::cell::RefCell;
 
-use super::{controls_panel, device_list, header, network_list, password_dialog, vpn_list};
+use super::{
+    audio, controls_panel, device_list, header, home, network_list, password_dialog, power,
+    vpn_list,
+};
 use crate::config::{Config, Position};
 
 thread_local! {
@@ -20,28 +24,54 @@ thread_local! {
     static USER_CSS_PROVIDER: RefCell<Option<CssProvider>> = const { RefCell::new(None) };
 }
 
-/// Minimum pixel height for list boxes (shows ~3 items)
+/// Minimum pixel height for list boxes (shows ~3 items).
 pub(crate) const MIN_LIST_HEIGHT: i32 = 220;
-/// Maximum pixel height for list boxes before scrolling (shows ~4–5 items)
+/// Maximum pixel height for list boxes before scrolling (shows ~4–5 items).
 pub(crate) const MAX_LIST_HEIGHT: i32 = 360;
 
-/// Default width of the main panel window
-pub(crate) const WINDOW_WIDTH: i32 = 340;
+/// Default width of the main panel window.
+pub(crate) const WINDOW_WIDTH: i32 = 400;
+
+/// Pages in the root Control Center stack.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum PanelPage {
+    Home,
+    Wifi,
+    Bluetooth,
+    Audio,
+    Power,
+}
+
+impl PanelPage {
+    fn name(self) -> &'static str {
+        match self {
+            Self::Home => "home",
+            Self::Wifi => "wifi",
+            Self::Bluetooth => "bluetooth",
+            Self::Audio => "audio",
+            Self::Power => "power",
+        }
+    }
+}
 
 /// All UI handles needed by the app controller.
-#[allow(dead_code)]
+#[derive(Clone)]
 pub(crate) struct PanelWidgets {
     pub window: ApplicationWindow,
     pub wifi_switch: gtk4::Switch,
     pub title_label: gtk4::Label,
+    /// Compatibility status sink used by existing async controllers.  It is
+    /// not rendered; app/mod.rs mirrors it into page-local labels.
     pub status_label: gtk4::Label,
+    pub wifi_status_label: gtk4::Label,
+    pub bluetooth_status_label: gtk4::Label,
     pub scan_button: gtk4::Button,
+    /// Hidden feature selectors retained for existing controller wiring.
     pub wifi_tab: gtk4::ToggleButton,
     pub bt_tab: gtk4::ToggleButton,
     // Wi-Fi page
     pub wifi_networks_tab: ToggleButton,
     pub wifi_vpn_tab: ToggleButton,
-    pub wifi_sub_stack: Stack,
     pub network_list_box: ListBox,
     pub network_scroll: gtk4::ScrolledWindow,
     pub spinner: gtk4::Spinner,
@@ -50,7 +80,7 @@ pub(crate) struct PanelWidgets {
     pub connect_button: gtk4::Button,
     pub cancel_button: gtk4::Button,
     pub error_label: gtk4::Label,
-    // VPN page (inside Wi-Fi tab)
+    // VPN page (inside Wi-Fi detail)
     pub vpn_import_button: gtk4::Button,
     pub vpn_open_button: gtk4::Button,
     pub vpn_list_box: ListBox,
@@ -60,10 +90,69 @@ pub(crate) struct PanelWidgets {
     pub bt_list_box: ListBox,
     pub bt_scroll: gtk4::ScrolledWindow,
     pub bt_spinner: gtk4::Spinner,
-    // Content stack
+    // Root stack and home page
     pub content_stack: Stack,
-    // Controls panel
+    pub home: home::HomeWidgets,
+    pub audio: audio::AudioWidgets,
+    pub power: power::PowerWidgets,
+    // Display and Power detail controls
     pub controls: controls_panel::ControlsPanel,
+}
+
+impl PanelWidgets {
+    /// Navigate to a root-stack page and keep legacy feature guards in sync.
+    pub(crate) fn navigate_to(&self, page: PanelPage) {
+        self.content_stack.set_visible_child_name(page.name());
+
+        match page {
+            PanelPage::Home => {
+                self.title_label.set_text("Control Center");
+                self.title_label.set_visible(true);
+                self.wifi_switch.set_visible(false);
+                self.scan_button.set_visible(false);
+                self.wifi_tab.set_active(false);
+                self.bt_tab.set_active(false);
+            }
+            PanelPage::Wifi => {
+                self.title_label.set_text("Wi-Fi");
+                self.title_label.set_visible(false);
+                self.wifi_switch.set_visible(true);
+                self.scan_button.set_visible(true);
+                self.scan_button.set_sensitive(true);
+                self.scan_button.set_tooltip_text(Some("Scan for networks"));
+                self.wifi_tab.set_active(true);
+            }
+            PanelPage::Bluetooth => {
+                self.title_label.set_text("Bluetooth");
+                self.title_label.set_visible(false);
+                self.wifi_switch.set_visible(true);
+                self.scan_button.set_visible(true);
+                self.scan_button.set_sensitive(true);
+                self.scan_button.set_tooltip_text(Some("Scan for devices"));
+                self.bt_tab.set_active(true);
+            }
+            PanelPage::Audio => {
+                self.title_label.set_text("Audio");
+                self.title_label.set_visible(false);
+                self.wifi_switch.set_visible(false);
+                self.scan_button.set_visible(false);
+                self.wifi_tab.set_active(false);
+                self.bt_tab.set_active(false);
+            }
+            PanelPage::Power => {
+                self.title_label.set_text("Power");
+                self.title_label.set_visible(false);
+                self.wifi_switch.set_visible(false);
+                self.scan_button.set_visible(false);
+                self.wifi_tab.set_active(false);
+                self.bt_tab.set_active(false);
+            }
+        }
+    }
+
+    pub(crate) fn show_home(&self) {
+        self.navigate_to(PanelPage::Home);
+    }
 }
 
 /// Build the main floating panel window with all UI components.
@@ -76,42 +165,49 @@ pub(crate) fn build_window(app: &Application) -> PanelWidgets {
         .default_width(WINDOW_WIDTH)
         .build();
 
-    // Initialize layer shell
+    // Initialize layer shell.
     window.init_layer_shell();
     window.set_namespace(Some("wifi-manager"));
     window.set_layer(Layer::Top);
     window.set_keyboard_mode(KeyboardMode::OnDemand);
 
-    // Apply position from config
+    // Apply position from config.
     apply_position(&window, &config);
 
-    // Don't push other windows
+    // Don't push other windows.
     window.set_exclusive_zone(-1);
 
-    // Main container
     let main_box = GtkBox::new(Orientation::Vertical, 0);
     main_box.add_css_class("wifi-panel");
 
-    // Header
     let header = header::build_header();
     main_box.append(&header.container);
 
-    // Separator
     let sep = gtk4::Separator::new(Orientation::Horizontal);
     sep.add_css_class("header-separator");
     main_box.append(&sep);
 
-    // ── Content Stack (switches between Wi-Fi and Bluetooth pages) ──
     let content_stack = Stack::new();
     content_stack.set_transition_type(StackTransitionType::Crossfade);
     content_stack.set_transition_duration(150);
-    content_stack.set_vexpand(true); // Pushes the controls panel to the absolute bottom statically
+    content_stack.set_vexpand(true);
     content_stack.add_css_class("content-stack");
 
-    // ── Wi-Fi page ──────────────────────────────────────────────────
-    let wifi_page = GtkBox::new(Orientation::Vertical, 0);
+    // ── Home page ────────────────────────────────────────────────────
+    let home = home::HomeWidgets::new();
+    let home_page = GtkBox::new(Orientation::Vertical, 0);
+    home_page.add_css_class("cc-page");
+    home_page.append(&home.container);
+    content_stack.add_named(&home_page, Some(PanelPage::Home.name()));
 
-    // Sub-tabs inside Wi-Fi: Networks / VPN
+    // ── Wi-Fi detail page ────────────────────────────────────────────
+    let wifi_page = GtkBox::new(Orientation::Vertical, 0);
+    wifi_page.add_css_class("cc-page");
+    let wifi_status_label = Label::new(Some("Loading…"));
+    let (wifi_detail_header, wifi_back_button) = make_detail_header("Wi-Fi", &wifi_status_label);
+    wifi_page.append(&wifi_detail_header);
+
+    // Sub-tabs inside Wi-Fi: Networks / VPN.
     let wifi_subtab_bar = GtkBox::new(Orientation::Horizontal, 0);
     wifi_subtab_bar.add_css_class("subtab-bar");
     wifi_subtab_bar.set_margin_top(6);
@@ -122,19 +218,14 @@ pub(crate) fn build_window(app: &Application) -> PanelWidgets {
     wifi_networks_tab.add_css_class("tab-active");
     wifi_networks_tab.set_active(true);
     wifi_networks_tab.set_hexpand(true);
-    if let Some(cursor) = gtk4::gdk::Cursor::from_name("pointer", None) {
-        wifi_networks_tab.set_cursor(Some(&cursor));
-    }
+    set_pointer_cursor(&wifi_networks_tab);
 
     let wifi_vpn_tab = ToggleButton::with_label("VPN");
     wifi_vpn_tab.add_css_class("subtab-button");
     wifi_vpn_tab.set_hexpand(true);
-    if let Some(cursor) = gtk4::gdk::Cursor::from_name("pointer", None) {
-        wifi_vpn_tab.set_cursor(Some(&cursor));
-    }
+    set_pointer_cursor(&wifi_vpn_tab);
 
     wifi_networks_tab.set_group(Some(&wifi_vpn_tab));
-
     wifi_subtab_bar.append(&wifi_networks_tab);
     wifi_subtab_bar.append(&wifi_vpn_tab);
     wifi_page.append(&wifi_subtab_bar);
@@ -145,15 +236,14 @@ pub(crate) fn build_window(app: &Application) -> PanelWidgets {
     wifi_sub_stack.set_vexpand(true);
     wifi_sub_stack.add_css_class("wifi-sub-stack");
 
-    // Networks view
+    // Networks view.
     let wifi_networks_view = GtkBox::new(Orientation::Vertical, 0);
-
     let (scrolled, list_box) = network_list::build_network_list();
 
     let spinner = gtk4::Spinner::new();
     spinner.set_spinning(true);
     spinner.add_css_class("loading-spinner");
-    spinner.set_size_request(32, MIN_LIST_HEIGHT); // Width 32, Height matches min_content_height of list
+    spinner.set_size_request(32, MIN_LIST_HEIGHT);
     spinner.set_halign(gtk4::Align::Center);
     spinner.set_valign(gtk4::Align::Center);
     spinner.set_margin_top(20);
@@ -166,10 +256,9 @@ pub(crate) fn build_window(app: &Application) -> PanelWidgets {
     let (revealer, entry, connect_btn, cancel_btn, error_label) =
         password_dialog::build_password_section();
     wifi_networks_view.append(&revealer);
-
     wifi_sub_stack.add_named(&wifi_networks_view, Some("networks"));
 
-    // VPN view
+    // VPN view.
     let vpn_view = GtkBox::new(Orientation::Vertical, 0);
     let vpn_actions = GtkBox::new(Orientation::Horizontal, 8);
     vpn_actions.add_css_class("vpn-actions-row");
@@ -177,26 +266,21 @@ pub(crate) fn build_window(app: &Application) -> PanelWidgets {
     vpn_actions.set_margin_end(20);
     vpn_actions.set_margin_bottom(6);
 
-    let vpn_import_button = gtk4::Button::with_label("Import Profile");
+    let vpn_import_button = Button::with_label("Import Profile");
     vpn_import_button.add_css_class("vpn-action-btn");
     vpn_import_button.set_hexpand(true);
-    if let Some(cursor) = gtk4::gdk::Cursor::from_name("pointer", None) {
-        vpn_import_button.set_cursor(Some(&cursor));
-    }
+    set_pointer_cursor(&vpn_import_button);
 
-    let vpn_open_button = gtk4::Button::with_label("Open Settings");
+    let vpn_open_button = Button::with_label("Open Settings");
     vpn_open_button.add_css_class("vpn-action-btn");
     vpn_open_button.set_hexpand(true);
-    if let Some(cursor) = gtk4::gdk::Cursor::from_name("pointer", None) {
-        vpn_open_button.set_cursor(Some(&cursor));
-    }
+    set_pointer_cursor(&vpn_open_button);
 
     vpn_actions.append(&vpn_import_button);
     vpn_actions.append(&vpn_open_button);
     vpn_view.append(&vpn_actions);
 
     let (vpn_scrolled, vpn_list_box) = vpn_list::build_vpn_list();
-
     let vpn_spinner = gtk4::Spinner::new();
     vpn_spinner.set_spinning(true);
     vpn_spinner.add_css_class("loading-spinner");
@@ -209,22 +293,24 @@ pub(crate) fn build_window(app: &Application) -> PanelWidgets {
     vpn_view.append(&vpn_spinner);
     vpn_view.append(&vpn_scrolled);
     vpn_scrolled.set_visible(false);
-
     wifi_sub_stack.add_named(&vpn_view, Some("vpn"));
     wifi_sub_stack.set_visible_child_name("networks");
     wifi_page.append(&wifi_sub_stack);
+    content_stack.add_named(&wifi_page, Some(PanelPage::Wifi.name()));
 
-    content_stack.add_named(&wifi_page, Some("wifi"));
-
-    // ── Bluetooth page ─────────────────────────────────────────────
+    // ── Bluetooth detail page ────────────────────────────────────────
     let bt_page = GtkBox::new(Orientation::Vertical, 0);
+    bt_page.add_css_class("cc-page");
+    let bluetooth_status_label = Label::new(Some("Loading…"));
+    let (bt_detail_header, bt_back_button) =
+        make_detail_header("Bluetooth", &bluetooth_status_label);
+    bt_page.append(&bt_detail_header);
 
     let (bt_scrolled, bt_list_box) = device_list::build_device_list();
-
     let bt_spinner = gtk4::Spinner::new();
     bt_spinner.set_spinning(true);
     bt_spinner.add_css_class("loading-spinner");
-    bt_spinner.set_size_request(32, MIN_LIST_HEIGHT); // Width 32, Height matches min_content_height of list
+    bt_spinner.set_size_request(32, MIN_LIST_HEIGHT);
     bt_spinner.set_halign(gtk4::Align::Center);
     bt_spinner.set_valign(gtk4::Align::Center);
     bt_spinner.set_margin_top(20);
@@ -233,93 +319,64 @@ pub(crate) fn build_window(app: &Application) -> PanelWidgets {
     bt_page.append(&bt_spinner);
     bt_page.append(&bt_scrolled);
     bt_scrolled.set_visible(false);
+    content_stack.add_named(&bt_page, Some(PanelPage::Bluetooth.name()));
 
-    content_stack.add_named(&bt_page, Some("bluetooth"));
+    // ── Audio detail page ────────────────────────────────────────────
+    let audio = audio::AudioWidgets::new();
+    let audio_page = GtkBox::new(Orientation::Vertical, 0);
+    audio_page.add_css_class("cc-page");
+    let (audio_header, audio_back_button) = make_detail_header("Audio", &audio.status);
+    audio_page.append(&audio_header);
+    audio_page.append(&audio.container);
+    content_stack.add_named(&audio_page, Some(PanelPage::Audio.name()));
 
-    // Start on Wi-Fi page
-    content_stack.set_visible_child_name("wifi");
-    main_box.append(&content_stack);
-
-    // ── Controls Panel (Bottom Footer) ─────────────────────────────
+    // ── Persistent quick controls and Power detail page ──────────────
     let controls = controls_panel::ControlsPanel::new();
-    main_box.append(controls.container());
+    // Keep the existing high-frequency controls on Home.  These are the
+    // original widget instances, so their existing manager bindings and
+    // session power actions remain single-owner and directly reachable.
+    let quick_controls = GtkBox::new(Orientation::Vertical, 0);
+    quick_controls.add_css_class("cc-quick-controls");
+    quick_controls.set_margin_start(12);
+    quick_controls.set_margin_end(12);
+    quick_controls.set_margin_bottom(8);
+    quick_controls.append(controls.display_page());
+    quick_controls.append(controls.power_page());
+    home_page.append(&quick_controls);
 
-    // Smoothly shrink window when controls are hidden
-    let window_clone = window.clone();
-    controls.toggle_button().connect_toggled(move |btn: &gtk4::ToggleButton| {
-        if !btn.is_active() {
-            // Slider section is collapsing
-            let win_ref = window_clone.clone();
-            let btn_ref = btn.clone();
-            // Wait slightly longer than the slide transition before recalibrating
-            let delay =
-                std::time::Duration::from_millis(controls_panel::SLIDE_TRANSITION_MS as u64 + 10);
-            gtk4::glib::timeout_add_local(delay, move || {
-                // Only resize if still collapsed
-                if !btn_ref.is_active() {
-                    win_ref.set_default_size(WINDOW_WIDTH, -1); // Keep width fixed, shrink height
-                }
-                gtk4::glib::ControlFlow::Break
-            });
-        }
-    });
+    let power = power::PowerWidgets::new();
+    let power_page = GtkBox::new(Orientation::Vertical, 0);
+    power_page.add_css_class("cc-page");
+    let (power_header, power_back_button) = make_detail_header("Power", &power.status);
+    power_page.append(&power_header);
+    power_page.append(&power.container);
+    let power_hint = Label::new(Some("Session actions are available on Home."));
+    power_hint.add_css_class("cc-detail-hint");
+    power_hint.set_margin_start(16);
+    power_hint.set_margin_end(16);
+    power_page.append(&power_hint);
+    content_stack.add_named(&power_page, Some(PanelPage::Power.name()));
 
-    // ── Tab switching — only manages content stack page ──────────────
-    // Title, status, and switch sync is handled by app controllers
-    // which can do async D-Bus calls to query actual power state.
-    {
-        let stack = content_stack.clone();
-        header.wifi_tab.connect_toggled(move |btn| {
-            if btn.is_active() {
-                stack.set_visible_child_name("wifi");
-            }
-        });
-    }
-    {
-        let stack = content_stack.clone();
-        header.bt_tab.connect_toggled(move |btn| {
-            if btn.is_active() {
-                stack.set_visible_child_name("bluetooth");
-            }
-        });
-    }
-
-    // ── Wi-Fi sub-tabs (Networks / VPN) ─────────────────────────────
-    {
-        let sub_stack = wifi_sub_stack.clone();
-        wifi_networks_tab.connect_toggled(move |btn| {
-            if btn.is_active() {
-                sub_stack.set_visible_child_name("networks");
-            }
-        });
-    }
-    {
-        let sub_stack = wifi_sub_stack.clone();
-        wifi_vpn_tab.connect_toggled(move |btn| {
-            if btn.is_active() {
-                sub_stack.set_visible_child_name("vpn");
-            }
-        });
-    }
-
+    // Start on Home, where the persistent quick controls are immediately
+    // usable without opening a detail page.
+    content_stack.set_visible_child_name(PanelPage::Home.name());
+    main_box.append(&content_stack);
     window.set_child(Some(&main_box));
 
-    // Load CSS theme
     load_css();
 
-    log::info!("Layer-shell panel built (hidden)");
-
-    PanelWidgets {
+    let widgets = PanelWidgets {
         window,
         wifi_switch: header.toggle_switch,
         title_label: header.title_label,
         status_label: header.status_label,
+        wifi_status_label,
+        bluetooth_status_label,
         scan_button: header.scan_button,
         wifi_tab: header.wifi_tab,
         bt_tab: header.bt_tab,
         wifi_networks_tab,
         wifi_vpn_tab,
-        wifi_sub_stack,
         network_list_box: list_box,
         network_scroll: scrolled,
         spinner,
@@ -337,7 +394,75 @@ pub(crate) fn build_window(app: &Application) -> PanelWidgets {
         bt_scroll: bt_scrolled,
         bt_spinner,
         content_stack,
+        home,
+        audio,
+        power,
         controls,
+    };
+
+    wire_navigation(
+        &widgets,
+        wifi_back_button,
+        bt_back_button,
+        audio_back_button,
+        power_back_button,
+    );
+    log::info!("Layer-shell Control Center built (hidden)");
+    widgets
+}
+
+fn make_detail_header(title: &str, status: &Label) -> (GtkBox, Button) {
+    let row = GtkBox::new(Orientation::Horizontal, 10);
+    row.add_css_class("cc-detail-header");
+    row.set_margin_start(16);
+    row.set_margin_end(16);
+    row.set_margin_top(12);
+    row.set_margin_bottom(4);
+
+    let back = Button::from_icon_name("go-previous-symbolic");
+    back.add_css_class("cc-back-button");
+    back.set_tooltip_text(Some("Back to Control Center"));
+    set_pointer_cursor(&back);
+
+    let info = GtkBox::new(Orientation::Vertical, 2);
+    info.set_hexpand(true);
+
+    let title_label = Label::new(Some(title));
+    title_label.add_css_class("cc-detail-title");
+    title_label.set_halign(gtk4::Align::Start);
+
+    status.add_css_class("cc-detail-status");
+    status.set_halign(gtk4::Align::Start);
+    status.set_ellipsize(gtk4::pango::EllipsizeMode::End);
+
+    info.append(&title_label);
+    info.append(status);
+    row.append(&back);
+    row.append(&info);
+    (row, back)
+}
+
+fn wire_navigation(
+    widgets: &PanelWidgets,
+    wifi_back: Button,
+    bt_back: Button,
+    audio_back: Button,
+    power_back: Button,
+) {
+    let navigation = [
+        (widgets.home.wifi.button().clone(), PanelPage::Wifi),
+        (widgets.home.bluetooth.button().clone(), PanelPage::Bluetooth),
+        (widgets.home.audio.button().clone(), PanelPage::Audio),
+        (widgets.home.power_battery.button().clone(), PanelPage::Power),
+    ];
+    for (button, page) in navigation {
+        let widgets = widgets.clone();
+        button.connect_clicked(move |_| widgets.navigate_to(page));
+    }
+
+    for back in [wifi_back, bt_back, audio_back, power_back] {
+        let widgets = widgets.clone();
+        back.connect_clicked(move |_| widgets.show_home());
     }
 }
 
@@ -348,7 +473,6 @@ fn load_css() {
         return;
     };
 
-    // Load bundled default theme
     let default_css = include_str!("../../resources/style.css");
     let provider = CssProvider::new();
     provider.load_from_string(default_css);
@@ -399,7 +523,7 @@ fn reload_user_css(display: &gdk::Display) {
     });
 }
 
-/// Get the config directory: ~/.config/wifi-manager/
+/// Get the config directory: ~/.config/wifi-manager/.
 fn dirs_config_path() -> Option<std::path::PathBuf> {
     let home = std::env::var("HOME").ok()?;
     Some(std::path::PathBuf::from(home).join(".config").join("wifi-manager"))
@@ -407,7 +531,6 @@ fn dirs_config_path() -> Option<std::path::PathBuf> {
 
 /// Apply window position and margins from config to a layer-shell window.
 fn apply_position(window: &ApplicationWindow, config: &Config) {
-    // Set anchors based on position
     let (top, bottom, left, right) = match config.position {
         Position::Center => (false, false, false, false),
         Position::TopCenter => (true, false, false, false),
@@ -425,7 +548,6 @@ fn apply_position(window: &ApplicationWindow, config: &Config) {
     window.set_anchor(Edge::Left, left);
     window.set_anchor(Edge::Right, right);
 
-    // Apply margins
     window.set_margin(Edge::Top, config.margin_top);
     window.set_margin(Edge::Right, config.margin_right);
     window.set_margin(Edge::Bottom, config.margin_bottom);
@@ -451,4 +573,10 @@ pub(crate) fn apply_runtime_config(
 ) {
     apply_position(window, config);
     controls.apply_config(config);
+}
+
+fn set_pointer_cursor<W: IsA<gtk4::Widget>>(widget: &W) {
+    if let Some(cursor) = gdk::Cursor::from_name("pointer", None) {
+        widget.set_cursor(Some(&cursor));
+    }
 }

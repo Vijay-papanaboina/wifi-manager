@@ -15,7 +15,6 @@ pub(crate) struct BluetoothManager {
     adapter_path: OwnedObjectPath,
 }
 
-#[allow(dead_code)]
 impl BluetoothManager {
     /// Connect to D-Bus (system bus) and find the first Bluetooth adapter.
     ///

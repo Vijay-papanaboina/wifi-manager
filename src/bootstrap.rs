@@ -11,6 +11,11 @@ const APP_ID: &str = "com.github.wifi_manager.WifiManager";
 
 /// Start the daemon, or send a command to an already-running instance.
 pub(crate) fn run(args: Args) {
+    if let Some(preset) = args.charge_limit_helper {
+        let exit_code = ui::power::run_charge_limit_helper(&preset);
+        std::process::exit(exit_code);
+    }
+
     if args.toggle {
         dispatch_toggle();
         return;
@@ -97,6 +102,11 @@ fn start_application() {
                 }
             });
         });
+
+        // Audio, battery, display, and power actions do not depend on a
+        // successful NetworkManager connection.  Start them immediately so
+        // the Control Center remains navigable with optional services absent.
+        app::setup_system_controls(&widgets);
 
         let daemon_state = panel_state.clone();
         glib::spawn_future_local(async move {

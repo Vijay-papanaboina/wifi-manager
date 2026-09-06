@@ -6,6 +6,7 @@
 //! - `live_updates` — D-Bus signal subscriptions for real-time changes
 //! - `shortcuts` — Escape key, reload polling
 
+mod audio;
 mod bluetooth;
 mod bt_helpers;
 mod bt_live_updates;
@@ -17,6 +18,7 @@ mod live_updates;
 mod scanning;
 mod shortcuts;
 mod state;
+mod system_power;
 mod vpn;
 mod vpn_import;
 mod vpn_utils;
@@ -49,7 +51,9 @@ pub(crate) fn setup(
     let state = Rc::new(RefCell::new(AppState {
         wifi,
         vpn,
-        active_tab: ActiveTab::Wifi,
+        // The shell opens on Home; no feature page owns the compatibility
+        // status sink until navigation activates its legacy selector.
+        active_tab: ActiveTab::None,
         networks: Vec::new(),
         selected_ssid: None,
         bluetooth: None,
@@ -100,8 +104,16 @@ pub(crate) fn setup(
     shortcuts::setup_escape_key(widgets, panel_state.clone());
     shortcuts::setup_reload_on_request(widgets, Rc::clone(&state), reload_requested);
     scanning::setup_initial_state(widgets, Rc::clone(&state));
-    controls::setup_controls(widgets);
     setup_visibility_pause(widgets, Rc::clone(&state), panel_state);
+}
+
+/// Start controls whose services do not depend on NetworkManager.  This is
+/// called while the window is being activated so Audio/Power navigation and
+/// their honest unavailable states still work when Wi-Fi setup is unavailable.
+pub(crate) fn setup_system_controls(widgets: &PanelWidgets) {
+    controls::setup_controls(widgets);
+    audio::setup(widgets);
+    system_power::setup(widgets);
 }
 
 /// Clone the WifiManager out of the RefCell (avoids holding borrow across await).
@@ -109,43 +121,120 @@ fn get_wifi(state: &Rc<RefCell<AppState>>) -> WifiManager {
     state.borrow().wifi.clone()
 }
 
-/// Keep the shared status label owned by the visible top-level page.
+/// Keep compatibility status writes isolated to the visible detail page.
 ///
-/// Wi-Fi refreshes are asynchronous and can outlive a tab switch. Recording
-/// the owner synchronously lets a completed Wi-Fi refresh prove that it may
-/// still update the shared label before rendering its result.
+/// Existing controllers all receive `status_label`; that handle is now a
+/// hidden sink. Mirroring its changes into page-local labels preserves those
+/// controller APIs without allowing a Wi-Fi refresh to overwrite Bluetooth's
+/// rendered status after navigation.
 fn setup_status_ownership(widgets: &PanelWidgets, state: Rc<RefCell<AppState>>) {
+    let status = widgets.status_label.clone();
+    status.set_visible(false);
+
+    let wifi_status = widgets.wifi_status_label.clone();
+    let bt_status = widgets.bluetooth_status_label.clone();
+    let home = widgets.home.clone();
+    let wifi_tab_for_status = widgets.wifi_tab.clone();
+    let bt_tab_for_status = widgets.bt_tab.clone();
+    let state_for_status = Rc::clone(&state);
+    status.connect_notify_local(Some("label"), move |label, _| {
+        let text = label.text();
+        let active_tab = state_for_status.borrow().active_tab;
+        if wifi_tab_for_status.is_active() && active_tab == ActiveTab::Wifi {
+            wifi_status.set_text(text.as_str());
+            home.set_wifi_status(Some(text.as_str()));
+        } else if bt_tab_for_status.is_active() && active_tab == ActiveTab::Bluetooth {
+            bt_status.set_text(text.as_str());
+            home.set_bluetooth_status(Some(text.as_str()));
+        }
+    });
+
     {
         let state = Rc::clone(&state);
+        let status = status.clone();
         widgets.wifi_tab.connect_toggled(move |tab| {
             if tab.is_active() {
                 state.borrow_mut().active_tab = ActiveTab::Wifi;
+                status.set_text("Checking Wi-Fi…");
+            } else if state.borrow().active_tab == ActiveTab::Wifi {
+                state.borrow_mut().active_tab = ActiveTab::None;
             }
         });
     }
 
     {
         let state = Rc::clone(&state);
-        let status = widgets.status_label.clone();
+        let status = status.clone();
         widgets.bt_tab.connect_toggled(move |tab| {
             if tab.is_active() {
                 state.borrow_mut().active_tab = ActiveTab::Bluetooth;
                 status.set_text("Checking Bluetooth…");
+            } else if state.borrow().active_tab == ActiveTab::Bluetooth {
+                state.borrow_mut().active_tab = ActiveTab::None;
             }
         });
     }
 
     // The panel can be shown and interacted with while the initial D-Bus
-    // setup is still running. Reconcile the current selection in case the
-    // Bluetooth toggle happened before these handlers were installed.
+    // setup is still running. Reconcile the current selection in case a
+    // feature toggle happened before these handlers were installed.
+    if widgets.wifi_tab.is_active() {
+        state.borrow_mut().active_tab = ActiveTab::Wifi;
+        status.set_text("Checking Wi-Fi…");
+    }
     if widgets.bt_tab.is_active() {
         state.borrow_mut().active_tab = ActiveTab::Bluetooth;
-        widgets.status_label.set_text("Checking Bluetooth…");
+        status.set_text("Checking Bluetooth…");
     }
+
+    // The switch is shared by the legacy Wi-Fi/Bluetooth controllers.  Its
+    // value is supplied by their real snapshots/toggle results, so mirror it
+    // into only the corresponding Home tile whenever one of those features
+    // owns the switch.
+    let home = widgets.home.clone();
+    let wifi_tab_for_switch = widgets.wifi_tab.clone();
+    let bt_tab_for_switch = widgets.bt_tab.clone();
+    widgets.wifi_switch.connect_notify_local(Some("active"), move |switch, _| {
+        if wifi_tab_for_switch.is_active() {
+            home.set_wifi_enabled(switch.is_active());
+        } else if bt_tab_for_switch.is_active() {
+            home.set_bluetooth_enabled(switch.is_active());
+        }
+    });
+
+    // Bluetooth hides its legacy selector when no adapter exists. Reflect
+    // that concrete availability in the home tile without probing hardware
+    // from the UI layer.
+    let home = widgets.home.clone();
+    widgets.bt_tab.connect_notify_local(Some("visible"), move |tab, _| {
+        if !tab.is_visible() {
+            home.bluetooth.set_state(crate::ui::home::TileState::Unavailable);
+        }
+    });
 }
 
 fn wifi_owns_status(state: &Rc<RefCell<AppState>>) -> bool {
     state.borrow().active_tab == ActiveTab::Wifi
+}
+
+pub(super) fn set_wifi_status(state: &Rc<RefCell<AppState>>, status: &gtk4::Label, text: &str) {
+    if wifi_owns_status(state) {
+        status.set_text(text);
+    }
+}
+
+pub(super) fn bluetooth_owns_status(state: &Rc<RefCell<AppState>>) -> bool {
+    state.borrow().active_tab == ActiveTab::Bluetooth
+}
+
+pub(super) fn set_bluetooth_status(
+    state: &Rc<RefCell<AppState>>,
+    status: &gtk4::Label,
+    text: &str,
+) {
+    if bluetooth_owns_status(state) {
+        status.set_text(text);
+    }
 }
 
 /// Refresh the network list from D-Bus and update the UI.
@@ -169,8 +258,8 @@ async fn refresh_list(
             // Update status with connected network
             let connected = nets.iter().find(|n| n.is_connected);
             match connected {
-                Some(n) => status.set_text(&format!("Connected to {}", n.ssid)),
-                None => status.set_text("Not connected"),
+                Some(n) => set_wifi_status(state, status, &format!("Connected to {}", n.ssid)),
+                None => set_wifi_status(state, status, "Not connected"),
             }
 
             let config = crate::config::Config::load();
@@ -184,15 +273,19 @@ async fn refresh_list(
                     let status = status.clone();
                     glib::spawn_future_local(async move {
                         let wifi = get_wifi(&state);
-                        status.set_text(&format!("Forgetting {}...", ssid));
+                        set_wifi_status(&state, &status, &format!("Forgetting {}...", ssid));
                         match wifi.forget_network(&ssid).await {
                             Ok(_) => {
-                                status.set_text(&format!("Forgot {}", ssid));
+                                set_wifi_status(&state, &status, &format!("Forgot {}", ssid));
                                 refresh_list(&state, &list_box, &status).await;
                             }
                             Err(e) => {
                                 log::error!("Forget failed: {e}");
-                                status.set_text(&format!("Failed to forget: {}", e));
+                                set_wifi_status(
+                                    &state,
+                                    &status,
+                                    &format!("Failed to forget: {}", e),
+                                );
                             }
                         }
                     });
@@ -212,7 +305,7 @@ async fn refresh_list(
         }
         Err(e) => {
             log::error!("Failed to get networks: {e}");
-            status.set_text("Failed to load networks");
+            set_wifi_status(state, status, "Failed to load networks");
         }
     }
 }
@@ -243,7 +336,7 @@ fn setup_scan_button_dispatch(widgets: &PanelWidgets, state: Rc<RefCell<AppState
                 bt_scroll.clone(),
             ),
             ScanTarget::Vpn => {
-                status.set_text("VPN view updates automatically");
+                set_wifi_status(&state, &status, "VPN view updates automatically");
             }
             ScanTarget::Wifi => scanning::run_manual_scan(
                 Rc::clone(&state),

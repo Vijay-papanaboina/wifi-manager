@@ -28,6 +28,10 @@ pub struct Args {
     /// Reload config and CSS (sends signal to running daemon).
     #[arg(long)]
     pub reload: bool,
+
+    /// Apply one validated charge-limit preset as the non-GUI Polkit helper.
+    #[arg(long = "charge-limit-helper", value_name = "PERCENT", hide = true)]
+    pub charge_limit_helper: Option<String>,
 }
 
 /// Start the application or dispatch a control command to an existing daemon.

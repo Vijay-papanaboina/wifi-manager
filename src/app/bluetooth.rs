@@ -13,9 +13,9 @@ use crate::dbus::bluetooth_manager::BluetoothManager;
 use crate::domain::bluetooth::BluetoothDevice;
 use crate::ui::window::PanelWidgets;
 
-use super::AppState;
 use super::bt_helpers::{clear_bt_list, get_bt, refresh_bt_list};
 use super::bt_scanning::{ManualBtScanUi, run_bt_scan_burst, start_bt_background_tasks};
+use super::{AppState, set_bluetooth_status};
 
 // Re-export scanning entry-points used by mod.rs
 pub(super) use super::bt_scanning::{
@@ -66,7 +66,7 @@ fn start_bt_view(state: Rc<RefCell<AppState>>, view: BluetoothView) {
         switch.set_active(powered);
 
         if !powered {
-            status.set_text("Bluetooth disabled");
+            set_bluetooth_status(&state, &status, "Bluetooth disabled");
             spinner.set_visible(false);
             spinner.set_spinning(false);
             scroll.set_visible(true);
@@ -103,6 +103,7 @@ pub(super) fn setup_bluetooth(widgets: &PanelWidgets, state: Rc<RefCell<AppState
     let switch = widgets.wifi_switch.clone();
     let scan_btn = widgets.scan_button.clone();
     let title = widgets.title_label.clone();
+    let home = widgets.home.clone();
 
     glib::spawn_future_local(async move {
         let bt = match BluetoothManager::new().await {
@@ -117,6 +118,36 @@ pub(super) fn setup_bluetooth(widgets: &PanelWidgets, state: Rc<RefCell<AppState
 
         log::info!("Bluetooth adapter available — BT tab enabled");
         state.borrow_mut().bluetooth = Some(bt.clone());
+
+        // Fetch the Home snapshot immediately instead of waiting for the
+        // Bluetooth detail page to become active.
+        match bt.is_powered().await {
+            Ok(false) => {
+                home.set_bluetooth_enabled(false);
+                home.set_bluetooth_status(Some("Bluetooth disabled"));
+            }
+            Ok(true) => {
+                home.set_bluetooth_enabled(true);
+                match bt.get_devices().await {
+                    Ok(devices) => match devices.iter().find(|device| device.connected) {
+                        Some(device) => home.set_bluetooth_status(Some(&format!(
+                            "Connected to {}",
+                            device.display_name
+                        ))),
+                        None => home.set_bluetooth_status(Some("Bluetooth enabled")),
+                    },
+                    Err(e) => {
+                        log::warn!("Failed to get initial Bluetooth snapshot: {e}");
+                        home.set_bluetooth_status(Some("Bluetooth enabled"));
+                    }
+                }
+            }
+            Err(e) => {
+                log::warn!("Failed to get initial Bluetooth power state: {e}");
+                home.set_bluetooth_enabled(false);
+                home.bluetooth.set_state(crate::ui::home::TileState::Unavailable);
+            }
+        }
 
         // ── BT tab activation ──────────────────────────────────────────────
         {
@@ -217,7 +248,7 @@ pub(super) fn setup_bluetooth(widgets: &PanelWidgets, state: Rc<RefCell<AppState
                         None => {
                             if bt_tab_c.is_active() {
                                 switch.set_active(!enabled);
-                                status.set_text("Bluetooth unavailable");
+                                set_bluetooth_status(&state, &status, "Bluetooth unavailable");
                             }
                             state.borrow_mut().bt_power_transition_in_progress = false;
                             switch.set_sensitive(true);
@@ -229,7 +260,7 @@ pub(super) fn setup_bluetooth(widgets: &PanelWidgets, state: Rc<RefCell<AppState
                         Ok(_) => {
                             if enabled {
                                 if bt_tab_c.is_active() {
-                                    status.set_text("Bluetooth enabled");
+                                    set_bluetooth_status(&state, &status, "Bluetooth enabled");
                                     scan_btn.set_sensitive(false);
                                 }
                                 let task_list_box = bt_list_box.clone();
@@ -310,7 +341,7 @@ pub(super) fn setup_bluetooth(widgets: &PanelWidgets, state: Rc<RefCell<AppState
                             }
                             if bt_tab_c.is_active() {
                                 switch.set_active(actual);
-                                status.set_text("Toggle failed");
+                                set_bluetooth_status(&state, &status, "Toggle failed");
                             }
                         }
                     }
@@ -375,7 +406,11 @@ async fn handle_device_row_click(
             let mut st = state.borrow_mut();
             st.bt_pending.insert(device.device_path.clone(), pending_label.to_string());
         }
-        status.set_text(&format!("{} {}...", status_prefix, device.display_name));
+        set_bluetooth_status(
+            state,
+            status,
+            &format!("{} {}...", status_prefix, device.display_name),
+        );
         glib::spawn_future_local({
             let state = Rc::clone(state);
             let bt_list_box = bt_list_box.clone();
@@ -413,7 +448,7 @@ async fn handle_device_row_click(
             }
             Err(e) => {
                 log::error!("BT disconnect failed: {e}");
-                status.set_text("Disconnect failed");
+                set_bluetooth_status(&state, &status, "Disconnect failed");
                 clear_pending(&state, &bt_list_box, &status, &device);
             }
         }
@@ -427,7 +462,7 @@ async fn handle_device_row_click(
             }
             Err(e) => {
                 log::error!("BT connect failed: {e}");
-                status.set_text("Connection failed");
+                set_bluetooth_status(&state, &status, "Connection failed");
                 clear_pending(&state, &bt_list_box, &status, &device);
             }
         }
@@ -445,7 +480,7 @@ async fn handle_device_row_click(
             }
             Err(e) => {
                 log::error!("BT pairing failed: {e}");
-                status.set_text("Pairing failed — try bluetoothctl");
+                set_bluetooth_status(&state, &status, "Pairing failed — try bluetoothctl");
                 clear_pending(&state, &bt_list_box, &status, &device);
             }
         }

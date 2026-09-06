@@ -9,8 +9,8 @@ use std::rc::Rc;
 use gtk4::glib;
 use gtk4::prelude::*;
 
-use super::AppState;
 use super::bt_helpers::{clear_bt_list, get_bt, refresh_bt_list};
+use super::{AppState, set_bluetooth_status};
 
 const BT_MANUAL_SCAN_WINDOW_MS: u64 = 5000;
 pub(super) const BT_AUTO_SCAN_WINDOW_MS: u64 = 10000;
@@ -274,8 +274,9 @@ pub(super) async fn run_bt_scan_burst(
     let generation = {
         let mut st = state.borrow_mut();
         if st.bt_scan_in_progress {
+            drop(st);
             if let Some(ui) = manual_ui {
-                status.set_text("Scan already running");
+                set_bluetooth_status(&state, &status, "Scan already running");
                 finish_manual_ui(ui);
             }
             return;

@@ -8,7 +8,7 @@ use gtk4::prelude::*;
 
 use crate::ui::window::PanelWidgets;
 
-use super::{AppState, get_wifi, refresh_list};
+use super::{AppState, get_wifi, refresh_list, set_wifi_status};
 
 const WIFI_SCAN_RESULT_WAIT_MS: u64 = 2500;
 const WIFI_AUTO_SCAN_INTERVAL_MS: u64 = 15000;
@@ -88,19 +88,48 @@ pub(super) fn setup_initial_state(widgets: &PanelWidgets, state: Rc<RefCell<AppS
     let spinner = widgets.spinner.clone();
     let scrolled = widgets.network_scroll.clone();
     let wifi_tab = widgets.wifi_tab.clone();
+    let home = widgets.home.clone();
 
     glib::spawn_future_local(async move {
         let wifi = get_wifi(&state);
 
-        // Set WiFi switch to current state
-        match wifi.is_wifi_enabled().await {
-            Ok(enabled) if wifi_tab.is_active() => switch.set_active(enabled),
-            Err(e) => log::error!("Failed to get WiFi state: {e}"),
-            _ => {}
+        // Fetch the Home snapshot immediately instead of waiting for the
+        // Wi-Fi detail page to become active.
+        let enabled = match wifi.is_wifi_enabled().await {
+            Ok(enabled) => {
+                home.set_wifi_enabled(enabled);
+                if wifi_tab.is_active() {
+                    switch.set_active(enabled);
+                }
+                enabled
+            }
+            Err(e) => {
+                log::error!("Failed to get WiFi state: {e}");
+                home.set_wifi_enabled(false);
+                home.wifi.set_state(crate::ui::home::TileState::Unavailable);
+                false
+            }
+        };
+
+        if enabled {
+            match wifi.get_networks().await {
+                Ok(networks) => match networks.iter().find(|network| network.is_connected) {
+                    Some(network) => {
+                        home.set_wifi_status(Some(&format!("Connected to {}", network.ssid)));
+                    }
+                    None => home.set_wifi_status(Some("Wi-Fi enabled")),
+                },
+                Err(e) => {
+                    log::warn!("Failed to get initial Wi-Fi snapshot: {e}");
+                    home.set_wifi_status(Some("Wi-Fi enabled"));
+                }
+            }
+        } else {
+            home.set_wifi_status(Some("Wi-Fi disabled"));
         }
 
         // Trigger initial scan
-        if let Err(e) = wifi.request_scan().await {
+        if enabled && let Err(e) = wifi.request_scan().await {
             log::warn!("Initial scan failed: {e}");
         }
 
@@ -296,7 +325,7 @@ async fn run_wifi_scan(
                 ui.scrolled.set_visible(true);
                 ui.scan_btn.set_sensitive(true);
             }
-            status.set_text("Wi-Fi is disabled");
+            set_wifi_status(&state, &status, "Wi-Fi is disabled");
             return;
         }
         Err(e) => {
@@ -313,7 +342,7 @@ async fn run_wifi_scan(
 
     if let Err(e) = wifi.request_scan().await {
         log::error!("Scan failed: {e}");
-        status.set_text("Scan failed");
+        set_wifi_status(&state, &status, "Scan failed");
         if let Some(ui) = manual_ui {
             ui.spinner.set_spinning(false);
             ui.spinner.set_visible(false);

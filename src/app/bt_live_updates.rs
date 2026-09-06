@@ -3,17 +3,81 @@
 //! Mirrors `live_updates.rs` for WiFi, using BlueZ ObjectManager signals.
 
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::rc::Rc;
 
 use gtk4::glib;
 use gtk4::prelude::*;
 
+use crate::dbus::bluetooth_manager::BluetoothManager;
 use crate::dbus::bluez_proxies::{Adapter1Proxy, BluezObjectManagerProxy};
-use crate::ui::window::PanelWidgets;
+use crate::ui::{
+    home::{HomeWidgets, TileState},
+    window::PanelWidgets,
+};
 
 use super::AppState;
 use super::bt_helpers::{clear_bt_list, refresh_bt_list};
 use super::bt_scanning::{start_bt_background_tasks, stop_bt_background_tasks};
+
+/// Refresh only the Home Bluetooth tile from the current BlueZ snapshot.
+///
+/// Detail-page status remains owned by the active Bluetooth controller. This
+/// helper intentionally writes only the typed Home tile handles.
+async fn refresh_home_bluetooth_snapshot(bt: &BluetoothManager, home: &HomeWidgets) {
+    let powered = match bt.is_powered().await {
+        Ok(powered) => powered,
+        Err(error) => {
+            log::warn!("Failed to read Bluetooth power for Home: {error}");
+            home.set_bluetooth_enabled(false);
+            home.bluetooth.set_state(TileState::Unavailable);
+            return;
+        }
+    };
+
+    home.set_bluetooth_enabled(powered);
+    if !powered {
+        home.set_bluetooth_status(Some("Bluetooth disabled"));
+        return;
+    }
+
+    match bt.get_devices().await {
+        Ok(devices) => {
+            if let Some(device) = devices.iter().find(|device| device.connected) {
+                home.set_bluetooth_status(Some(&format!("Connected to {}", device.display_name)));
+            } else {
+                home.set_bluetooth_status(Some("Bluetooth enabled"));
+            }
+        }
+        Err(error) => {
+            log::warn!("Failed to read Bluetooth devices for Home: {error}");
+            home.bluetooth.set_state(TileState::Unavailable);
+        }
+    }
+}
+
+/// Debounce Home-only refreshes shared by the ObjectManager added/removed
+/// streams. Discovery commonly emits a burst, and a single pending source
+/// keeps those signals from serializing full BlueZ snapshots.
+fn schedule_home_bluetooth_refresh(
+    pending: &Rc<RefCell<Option<glib::SourceId>>>,
+    bt: BluetoothManager,
+    home: HomeWidgets,
+) {
+    if pending.borrow().is_some() {
+        return;
+    }
+
+    let pending_for_callback = Rc::clone(pending);
+    let source_id =
+        glib::timeout_add_local_once(std::time::Duration::from_millis(300), move || {
+            pending_for_callback.borrow_mut().take();
+            glib::spawn_future_local(async move {
+                refresh_home_bluetooth_snapshot(&bt, &home).await;
+            });
+        });
+    *pending.borrow_mut() = Some(source_id);
+}
 
 /// Subscribe to BlueZ ObjectManager signals for live BT updates.
 ///
@@ -31,6 +95,7 @@ pub(super) fn setup_bt_live_updates(
     let status = widgets.status_label.clone();
     let bt_tab = widgets.bt_tab.clone();
     let switch = widgets.wifi_switch.clone();
+    let home = widgets.home.clone();
 
     glib::spawn_future_local(async move {
         // Wait until the BT manager is initialized
@@ -63,6 +128,7 @@ pub(super) fn setup_bt_live_updates(
         let bt_list_box_power = bt_list_box.clone();
         let status_power = status.clone();
         let switch_power = switch.clone();
+        let home_power = home.clone();
         let panel_visible_power = panel_visible.clone();
         glib::spawn_future_local(async move {
             let adapter = match Adapter1Proxy::builder(bt_for_power.connection())
@@ -88,9 +154,15 @@ pub(super) fn setup_bt_live_updates(
                     Ok(powered) => powered,
                     Err(e) => {
                         log::warn!("Failed to read Bluetooth power after change: {e}");
+                        home_power.set_bluetooth_enabled(false);
+                        home_power.bluetooth.set_state(TileState::Unavailable);
                         continue;
                     }
                 };
+
+                // Powered changes must update Home independently of which
+                // detail page currently owns the legacy controls.
+                refresh_home_bluetooth_snapshot(&bt_for_power, &home_power).await;
 
                 // The switch is shared by Wi-Fi and Bluetooth. Do not let a
                 // BT event overwrite the Wi-Fi view while that tab is active.
@@ -130,6 +202,76 @@ pub(super) fn setup_bt_live_updates(
 
         let conn = bt.connection();
 
+        // BlueZ reports Device1.Connected changes through the generic
+        // PropertiesChanged signal. Scope the match to this adapter so
+        // another adapter cannot perturb this panel's Home tile.
+        let device_rule = zbus::MatchRule::builder()
+            .msg_type(zbus::message::Type::Signal)
+            .sender("org.bluez")
+            .and_then(|rule| rule.interface("org.freedesktop.DBus.Properties"))
+            .and_then(|rule| rule.member("PropertiesChanged"))
+            .and_then(|rule| rule.arg(0, "org.bluez.Device1"))
+            .and_then(|rule| rule.path_namespace(bt.adapter_path()))
+            .map(|rule| rule.build());
+
+        match device_rule {
+            Ok(device_rule) => {
+                match zbus::MessageStream::for_match_rule(device_rule, conn, Some(32)).await {
+                    Ok(mut device_stream) => {
+                        let bt_for_device = bt.clone();
+                        let home_for_device = home.clone();
+                        glib::spawn_future_local(async move {
+                            use futures_util::StreamExt;
+                            while let Some(message) = device_stream.next().await {
+                                let message = match message {
+                                    Ok(message) => message,
+                                    Err(error) => {
+                                        log::debug!(
+                                            "Ignoring BlueZ PropertiesChanged stream error: {error}"
+                                        );
+                                        continue;
+                                    }
+                                };
+                                let (interface, changed, invalidated) = match message
+                                    .body()
+                                    .deserialize::<(
+                                        String,
+                                        HashMap<String, zbus::zvariant::OwnedValue>,
+                                        Vec<String>,
+                                    )>() {
+                                    Ok(body) => body,
+                                    Err(error) => {
+                                        log::debug!(
+                                            "Ignoring malformed BlueZ PropertiesChanged signal: {error}"
+                                        );
+                                        continue;
+                                    }
+                                };
+
+                                if interface != "org.bluez.Device1"
+                                    || (!changed.contains_key("Connected")
+                                        && !invalidated.iter().any(|name| name == "Connected"))
+                                {
+                                    continue;
+                                }
+
+                                refresh_home_bluetooth_snapshot(&bt_for_device, &home_for_device)
+                                    .await;
+                            }
+                        });
+                    }
+                    Err(error) => {
+                        log::error!(
+                            "Failed to subscribe to BlueZ Device1 PropertiesChanged: {error}"
+                        );
+                    }
+                }
+            }
+            Err(error) => {
+                log::error!("Failed to build BlueZ Device1 match rule: {error}");
+            }
+        }
+
         let obj_manager = match BluezObjectManagerProxy::new(conn).await {
             Ok(p) => p,
             Err(e) => {
@@ -164,13 +306,22 @@ pub(super) fn setup_bt_live_updates(
         log::info!("BT live updates: subscribed to InterfacesAdded/Removed signals");
 
         use futures_util::StreamExt;
+        let home_refresh_source = Rc::new(RefCell::new(None));
         let bt_tab_added = bt_tab.clone();
         let bt_list_box_added = bt_list_box.clone();
         let status_added = status.clone();
         let state_added = Rc::clone(&state);
+        let bt_added = bt.clone();
+        let home_added = home.clone();
+        let home_refresh_added = Rc::clone(&home_refresh_source);
         if let Some(mut added_stream) = added_stream {
             glib::spawn_future_local(async move {
                 while (added_stream.next().await).is_some() {
+                    schedule_home_bluetooth_refresh(
+                        &home_refresh_added,
+                        bt_added.clone(),
+                        home_added.clone(),
+                    );
                     if !bt_tab_added.is_active() {
                         continue;
                     }
@@ -188,9 +339,17 @@ pub(super) fn setup_bt_live_updates(
         let bt_list_box_removed = bt_list_box.clone();
         let status_removed = status.clone();
         let state_removed = Rc::clone(&state);
+        let bt_removed = bt.clone();
+        let home_removed = home.clone();
+        let home_refresh_removed = Rc::clone(&home_refresh_source);
         if let Some(mut removed_stream) = removed_stream {
             glib::spawn_future_local(async move {
                 while (removed_stream.next().await).is_some() {
+                    schedule_home_bluetooth_refresh(
+                        &home_refresh_removed,
+                        bt_removed.clone(),
+                        home_removed.clone(),
+                    );
                     if !bt_tab_removed.is_active() {
                         continue;
                     }
