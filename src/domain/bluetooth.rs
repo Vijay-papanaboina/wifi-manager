@@ -52,13 +52,13 @@ impl DeviceCategory {
 
     pub(crate) fn default_icon(self) -> &'static str {
         match self {
-            Self::Audio => "󰋋",
-            Self::Mouse => "󰍽",
-            Self::Input => "󰌌",
-            Self::Computer => "󰍹",
-            Self::Phone => "󰏲",
-            Self::Peripheral => "󰐻",
-            Self::Other => "󰂯",
+            Self::Audio => "wifi-manager-headphones-symbolic",
+            Self::Mouse => "wifi-manager-mouse-symbolic",
+            Self::Input => "wifi-manager-keyboard-symbolic",
+            Self::Computer => "wifi-manager-computer-symbolic",
+            Self::Phone => "wifi-manager-phone-symbolic",
+            Self::Peripheral => "wifi-manager-peripheral-symbolic",
+            Self::Other => "wifi-manager-bluetooth-symbolic",
         }
     }
 }

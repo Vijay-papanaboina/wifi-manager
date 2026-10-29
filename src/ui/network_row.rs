@@ -51,7 +51,7 @@ pub(crate) fn build_network_row(
 
     // Signal strength icon
     let (icon_text, signal_class) = signal_icon(network.strength, &config.signal_icons);
-    let signal_label = Label::new(Some(icon_text));
+    let signal_label = super::icons::widget(icon_text, 24);
     signal_label.add_css_class("signal-icon");
     signal_label.add_css_class(signal_class);
     signal_label.set_valign(gtk4::Align::Center);
@@ -99,7 +99,7 @@ pub(crate) fn build_network_row(
 
     // Lock icon (if secured)
     if network.security != SecurityType::Open {
-        let lock_label = Label::new(Some(&config.lock_icon));
+        let lock_label = super::icons::widget(&config.lock_icon, 16);
         lock_label.add_css_class("security-icon");
         lock_label.set_valign(gtk4::Align::Center);
         hbox.append(&lock_label);
@@ -107,7 +107,7 @@ pub(crate) fn build_network_row(
 
     // Saved icon
     if network.is_saved && !network.is_connected {
-        let saved_label = Label::new(Some(&config.saved_icon));
+        let saved_label = super::icons::widget(&config.saved_icon, 16);
         saved_label.add_css_class("saved-icon");
         saved_label.set_valign(gtk4::Align::Center);
         hbox.append(&saved_label);
@@ -127,7 +127,7 @@ pub(crate) fn build_network_row(
         popover.add_css_class("network-popover");
 
         let menu_btn = MenuButton::new();
-        menu_btn.set_icon_name("view-more-symbolic");
+        menu_btn.set_icon_name("wifi-manager-more-symbolic");
         menu_btn.add_css_class("network-menu-btn");
         menu_btn.add_css_class("flat");
         menu_btn.set_has_frame(false);

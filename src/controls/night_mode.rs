@@ -126,7 +126,7 @@ impl NightModeManager {
                     log::info!(
                         "wlr-gamma-control unavailable ({wlr_err}); using KDE Night Light backend"
                     );
-                    Ok(Self::new_kde())
+                    Self::new_kde()
                 } else {
                     Err(wlr_err)
                 }
@@ -166,17 +166,13 @@ impl NightModeManager {
 
     /// Reads KDE's current Night Light settings, then spawns the KDE worker thread.
     /// Nothing is written to `kwinrc` until a temperature is actually requested.
-    fn new_kde() -> Self {
-        let external_state = match read_kde_settings() {
-            Ok(settings) => Some(settings.ui_state()),
-            Err(e) => {
-                log::warn!("Could not read KDE Night Light settings: {e}");
-                None
-            }
-        };
+    fn new_kde() -> Result<Self, Box<dyn std::error::Error>> {
+        let settings = read_kde_settings()
+            .map_err(|error| format!("Could not read KDE Night Light settings: {error}"))?;
+        let external_state = Some(settings.ui_state());
         let (tx, rx) = mpsc::channel();
         let handle = thread::spawn(move || run_kde_thread(rx));
-        NightModeManager { sender: Some(tx), worker_handle: Some(handle), external_state }
+        Ok(NightModeManager { sender: Some(tx), worker_handle: Some(handle), external_state })
     }
 
     /// Sends a new color temperature (in Kelvin) down the channel to the worker thread.
@@ -192,7 +188,7 @@ impl NightModeManager {
     }
 
     /// State read from the desktop at startup, if the desktop owns Night Mode.
-    /// `None` means this app owns the state (wlr backend) or it could not be read.
+    /// `None` means this app owns the state (wlr backend).
     pub(crate) fn external_state(&self) -> Option<NightModeState> {
         self.external_state
     }
@@ -424,11 +420,10 @@ fn apply_gamma_ramps(
 //                     changed them in KDE in the meantime. With nothing to
 //                     restore, write Active=false.
 //   * Slider        : same as switching on, with the new temperature.
-// No KDE state is cached between requests: every write is decided from the
-// request itself, so changes made through KDE's own settings never leave the
-// controls stuck. `NightTemperature` is shared with KDE's schedule and is not
-// restored. The remembered settings live in memory only, so restarting the
-// app while the override is on forgets them.
+// Re-read KDE's settings before overriding or restoring its schedule.
+// `NightTemperature` is shared with KDE's schedule and is not restored. The
+// remembered settings live in memory only, so restarting the app while the
+// override is on forgets them.
 
 /// Neutral temperature: at or above this, the override is switched off.
 const KDE_NEUTRAL_KELVIN: u32 = 6500;
@@ -536,7 +531,13 @@ fn run_with_timeout(cmd: &mut Command, timeout: Duration) -> Result<String, Comm
 /// Writes one key of the `[NightColor]` group in `kwinrc` and notifies KWin.
 fn kde_write(key: &str, value: &str) -> Result<(), CommandError> {
     let mut cmd = Command::new("kwriteconfig6");
-    cmd.args(["--file", "kwinrc", "--group", "NightColor", "--key", key, value, "--notify"]);
+    cmd.args(["--file", "kwinrc", "--group", "NightColor", "--key", key, "--notify"]);
+    if key == "Mode" && value.is_empty() {
+        // Restore an unset mode using this Plasma version's default.
+        cmd.arg("--delete");
+    } else {
+        cmd.arg(value);
+    }
     run_with_timeout(&mut cmd, KDE_COMMAND_TIMEOUT).map(|_| ())
 }
 
@@ -570,6 +571,7 @@ fn kde_backend_available() -> bool {
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct KdeSettings {
     active: bool,
+    /// Empty means unset, so restoration must leave KDE's default intact.
     mode: String,
     temperature: u32,
 }
@@ -599,8 +601,7 @@ fn parse_kde_temperature(value: &str) -> u32 {
 
 fn read_kde_settings() -> Result<KdeSettings, CommandError> {
     let active = parse_kde_bool(&kde_read("Active", "false")?);
-    let mode = kde_read("Mode", "Automatic")?;
-    let mode = if mode.is_empty() { "Automatic".to_owned() } else { mode };
+    let mode = kde_read("Mode", "")?;
     let temperature =
         parse_kde_temperature(&kde_read("NightTemperature", &KDE_DEFAULT_KELVIN.to_string())?);
     Ok(KdeSettings { active, mode, temperature })
@@ -624,57 +625,114 @@ fn kde_target(temp: f64) -> KdeTarget {
     if kelvin >= KDE_NEUTRAL_KELVIN { KdeTarget::Neutral } else { KdeTarget::Warm(kelvin) }
 }
 
-/// Only undo our override if it is still in place; if KDE's settings were
-/// changed meanwhile, leave them alone. Unknown state (read failed) restores.
-fn should_restore(current: Option<&KdeSettings>) -> bool {
-    current.map(KdeSettings::is_manual).unwrap_or(true)
-}
-
 #[derive(Default)]
 struct KdeNightLight {
     /// KDE's settings from before the override was switched on.
     saved: Option<KdeSettings>,
+    /// A restoration started but has not yet written both saved settings.
+    restore_pending: bool,
 }
 
 impl KdeNightLight {
     fn apply(&mut self, temp: f64) -> Result<(), CommandError> {
+        let mut read = || read_kde_settings();
+        let mut write = |key: &str, value: &str| kde_write(key, value);
+        self.apply_with_io(temp, &mut read, &mut write)
+    }
+
+    fn apply_with_io<R, W>(
+        &mut self,
+        temp: f64,
+        read: &mut R,
+        write: &mut W,
+    ) -> Result<(), CommandError>
+    where
+        R: FnMut() -> Result<KdeSettings, CommandError>,
+        W: FnMut(&str, &str) -> Result<(), CommandError>,
+    {
         match kde_target(temp) {
-            KdeTarget::Warm(kelvin) => self.enable(kelvin),
-            KdeTarget::Neutral => self.disable(),
+            KdeTarget::Warm(kelvin) => self.enable_with_io(kelvin, read, write),
+            KdeTarget::Neutral => self.disable_with_io(read, write),
         }
     }
 
-    fn enable(&mut self, kelvin: u32) -> Result<(), CommandError> {
-        if self.saved.is_none() {
-            match read_kde_settings() {
-                Ok(current) if !current.is_manual() => self.saved = Some(current),
-                Ok(_) => {} // already manual: nothing to restore later
-                Err(e) => log::warn!("Could not read KDE settings before enabling: {e}"),
-            }
+    fn enable_with_io<R, W>(
+        &mut self,
+        kelvin: u32,
+        read: &mut R,
+        write: &mut W,
+    ) -> Result<(), CommandError>
+    where
+        R: FnMut() -> Result<KdeSettings, CommandError>,
+        W: FnMut(&str, &str) -> Result<(), CommandError>,
+    {
+        if self.restore_pending {
+            self.disable_with_io(read, write)?;
+        }
+
+        let current = read()?;
+        if !current.is_manual() {
+            self.saved = Some(current);
         }
         // Temperature first so enabling never flashes the previous value.
         // Mode before Active so KDE's schedule cannot take over.
-        kde_write("NightTemperature", &kelvin.to_string())?;
-        kde_write("Mode", KDE_MODE_CONSTANT)?;
-        kde_write("Active", "true")
+        write("NightTemperature", &kelvin.to_string())?;
+        write("Mode", KDE_MODE_CONSTANT)?;
+        if let Err(enable_error) = write("Active", "true") {
+            if let Some(saved) = self.saved.clone() {
+                self.restore_pending = true;
+                match Self::write_saved_settings(&saved, write) {
+                    Ok(()) => {
+                        self.saved = None;
+                        self.restore_pending = false;
+                    }
+                    Err(rollback_error) => {
+                        log::warn!("Failed to roll back KDE Night Light enable: {rollback_error}");
+                    }
+                }
+            }
+            return Err(enable_error);
+        }
+        Ok(())
     }
 
-    fn disable(&mut self) -> Result<(), CommandError> {
-        let Some(saved) = self.saved.take() else {
-            return kde_write("Active", "false");
+    fn disable_with_io<R, W>(&mut self, read: &mut R, write: &mut W) -> Result<(), CommandError>
+    where
+        R: FnMut() -> Result<KdeSettings, CommandError>,
+        W: FnMut(&str, &str) -> Result<(), CommandError>,
+    {
+        let Some(saved) = self.saved.clone() else {
+            return write("Active", "false");
         };
-        let current = match read_kde_settings() {
-            Ok(current) => Some(current),
-            Err(e) => {
-                log::warn!("Could not read KDE settings before restoring: {e}");
-                None
+
+        if !self.restore_pending {
+            let current = match read() {
+                Ok(current) => current,
+                Err(e) => {
+                    log::warn!("Could not read KDE settings before restoring: {e}");
+                    return Err(e);
+                }
+            };
+            if !current.is_manual() {
+                self.saved = None;
+                return Ok(());
             }
-        };
-        if !should_restore(current.as_ref()) {
-            return Ok(());
         }
-        kde_write("Mode", &saved.mode)?;
-        kde_write("Active", if saved.active { "true" } else { "false" })
+
+        self.restore_pending = true;
+        Self::write_saved_settings(&saved, write)?;
+        self.saved = None;
+        self.restore_pending = false;
+        Ok(())
+    }
+
+    fn write_saved_settings<W>(saved: &KdeSettings, write: &mut W) -> Result<(), CommandError>
+    where
+        W: FnMut(&str, &str) -> Result<(), CommandError>,
+    {
+        let mode_result = write("Mode", &saved.mode);
+        let active_result = write("Active", if saved.active { "true" } else { "false" });
+        mode_result.and(active_result)
     }
 }
 
@@ -696,6 +754,8 @@ fn run_kde_thread(rx: mpsc::Receiver<f64>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::cell::RefCell;
+    use std::rc::Rc;
 
     fn kde(active: bool, mode: &str) -> KdeSettings {
         KdeSettings { active, mode: mode.to_owned(), temperature: 4500 }
@@ -765,12 +825,240 @@ mod tests {
         assert!(!state.enabled, "a scheduled Night Light is not a manual override");
     }
 
+    #[derive(Debug)]
+    struct FakeKdeIo {
+        settings: KdeSettings,
+        reads: usize,
+        writes: usize,
+        write_log: Vec<(String, String)>,
+        fail_reads: Vec<usize>,
+        fail_writes: Vec<usize>,
+    }
+
+    impl FakeKdeIo {
+        fn new(settings: KdeSettings) -> Self {
+            Self {
+                settings,
+                reads: 0,
+                writes: 0,
+                write_log: Vec::new(),
+                fail_reads: Vec::new(),
+                fail_writes: Vec::new(),
+            }
+        }
+
+        fn read(&mut self) -> Result<KdeSettings, CommandError> {
+            self.reads += 1;
+            if self.fail_reads.contains(&self.reads) {
+                return Err(injected_error("read"));
+            }
+            Ok(self.settings.clone())
+        }
+
+        fn write(&mut self, key: &str, value: &str) -> Result<(), CommandError> {
+            self.writes += 1;
+            self.write_log.push((key.to_owned(), value.to_owned()));
+            if self.fail_writes.contains(&self.writes) {
+                return Err(injected_error("write"));
+            }
+            match key {
+                "Active" => self.settings.active = parse_kde_bool(value),
+                "Mode" => self.settings.mode = value.to_owned(),
+                "NightTemperature" => {
+                    self.settings.temperature = parse_kde_temperature(value);
+                }
+                _ => unreachable!("unexpected KDE setting: {key}"),
+            }
+            Ok(())
+        }
+    }
+
+    fn injected_error(operation: &str) -> CommandError {
+        CommandError::Wait(io::Error::other(format!("injected {operation} failure")))
+    }
+
+    fn fake_io(settings: KdeSettings) -> Rc<RefCell<FakeKdeIo>> {
+        Rc::new(RefCell::new(FakeKdeIo::new(settings)))
+    }
+
+    fn apply_fake(
+        light: &mut KdeNightLight,
+        fake: &Rc<RefCell<FakeKdeIo>>,
+        temp: f64,
+    ) -> Result<(), CommandError> {
+        let read_state = Rc::clone(fake);
+        let write_state = Rc::clone(fake);
+        let mut read = move || read_state.borrow_mut().read();
+        let mut write = move |key: &str, value: &str| write_state.borrow_mut().write(key, value);
+        light.apply_with_io(temp, &mut read, &mut write)
+    }
+
+    fn disable_fake(
+        light: &mut KdeNightLight,
+        fake: &Rc<RefCell<FakeKdeIo>>,
+    ) -> Result<(), CommandError> {
+        let read_state = Rc::clone(fake);
+        let write_state = Rc::clone(fake);
+        let mut read = move || read_state.borrow_mut().read();
+        let mut write = move |key: &str, value: &str| write_state.borrow_mut().write(key, value);
+        light.disable_with_io(&mut read, &mut write)
+    }
+
     #[test]
-    fn restore_only_while_override_is_in_place() {
-        assert!(should_restore(Some(&kde(true, "Constant"))));
-        assert!(!should_restore(Some(&kde(false, "Constant"))));
-        assert!(!should_restore(Some(&kde(true, "Automatic"))));
-        assert!(should_restore(None));
+    fn failed_final_enable_rolls_back_the_original_schedule() {
+        let original = KdeSettings { active: true, mode: "Automatic".into(), temperature: 5200 };
+        let fake = fake_io(original.clone());
+        fake.borrow_mut().fail_writes = vec![3];
+        let mut light = KdeNightLight::default();
+
+        assert!(apply_fake(&mut light, &fake, 3000.0).is_err());
+        let state = &fake.borrow().settings;
+        assert_eq!(state.mode, original.mode);
+        assert_eq!(state.active, original.active);
+        assert_eq!(fake.borrow().writes, 5, "rollback must attempt both saved settings");
+    }
+
+    #[test]
+    fn failed_enable_rollback_stays_retryable() {
+        let original = KdeSettings { active: true, mode: "Automatic".into(), temperature: 5200 };
+        let fake = fake_io(original.clone());
+        fake.borrow_mut().fail_writes = vec![3, 4];
+        let mut light = KdeNightLight::default();
+
+        assert!(apply_fake(&mut light, &fake, 3000.0).is_err());
+        assert!(disable_fake(&mut light, &fake).is_ok());
+        let state = &fake.borrow().settings;
+        assert_eq!(state.mode, original.mode);
+        assert_eq!(state.active, original.active);
+    }
+
+    #[test]
+    fn failed_restore_retains_snapshot_for_successful_retry() {
+        let original = KdeSettings { active: true, mode: "Automatic".into(), temperature: 5200 };
+        let fake = fake_io(original.clone());
+        fake.borrow_mut().fail_writes = vec![4];
+        let mut light = KdeNightLight::default();
+        apply_fake(&mut light, &fake, 3000.0).expect("warm override applies");
+
+        assert!(disable_fake(&mut light, &fake).is_err());
+        assert!(light.saved.is_some(), "failed restore must keep the snapshot");
+        disable_fake(&mut light, &fake).expect("restore retry succeeds");
+        let state = &fake.borrow().settings;
+        assert_eq!(state.mode, original.mode);
+        assert_eq!(state.active, original.active);
+    }
+
+    #[test]
+    fn retry_after_mode_restore_failure_still_restores_active() {
+        let original = KdeSettings { active: true, mode: "Automatic".into(), temperature: 5200 };
+        let fake = fake_io(original.clone());
+        fake.borrow_mut().fail_writes = vec![5];
+        let mut light = KdeNightLight::default();
+        apply_fake(&mut light, &fake, 3000.0).expect("warm override applies");
+
+        assert!(disable_fake(&mut light, &fake).is_err());
+        assert_eq!(fake.borrow().settings.mode, original.mode);
+        disable_fake(&mut light, &fake).expect("restore retry succeeds");
+        let state = &fake.borrow().settings;
+        assert_eq!(state.mode, original.mode);
+        assert_eq!(state.active, original.active);
+    }
+
+    #[test]
+    fn external_settings_change_is_not_overwritten() {
+        let fake =
+            fake_io(KdeSettings { active: false, mode: "Automatic".into(), temperature: 5200 });
+        let mut light = KdeNightLight::default();
+        apply_fake(&mut light, &fake, 3000.0).expect("warm override applies");
+        let writes_before_disable = fake.borrow().writes;
+        fake.borrow_mut().settings =
+            KdeSettings { active: false, mode: "Scheduled".into(), temperature: 4100 };
+
+        disable_fake(&mut light, &fake).expect("external settings are left alone");
+        assert_eq!(fake.borrow().settings.mode, "Scheduled");
+        assert_eq!(fake.borrow().settings.temperature, 4100);
+        assert_eq!(fake.borrow().writes, writes_before_disable);
+        assert!(light.saved.is_none());
+    }
+
+    #[test]
+    fn failed_disable_read_preserves_snapshot_until_retry() {
+        let original = KdeSettings { active: true, mode: "Automatic".into(), temperature: 5200 };
+        let fake = fake_io(original.clone());
+        let mut light = KdeNightLight::default();
+        apply_fake(&mut light, &fake, 3000.0).expect("warm override applies");
+        fake.borrow_mut().fail_reads = vec![2];
+        let writes_before_disable = fake.borrow().writes;
+
+        assert!(disable_fake(&mut light, &fake).is_err());
+        assert_eq!(fake.borrow().writes, writes_before_disable);
+        assert!(light.saved.is_some(), "failed read must preserve the snapshot");
+        disable_fake(&mut light, &fake).expect("restore retry succeeds");
+        let state = &fake.borrow().settings;
+        assert_eq!(state.mode, original.mode);
+        assert_eq!(state.active, original.active);
+    }
+
+    #[test]
+    fn warm_request_after_failed_rollback_restores_before_new_snapshot() {
+        let original = KdeSettings { active: true, mode: "Automatic".into(), temperature: 5200 };
+        let fake = fake_io(original.clone());
+        fake.borrow_mut().fail_writes = vec![3, 4];
+        let mut light = KdeNightLight::default();
+
+        assert!(apply_fake(&mut light, &fake, 3000.0).is_err());
+        assert!(light.restore_pending);
+        assert!(light.saved.is_some());
+
+        apply_fake(&mut light, &fake, 4200.0).expect("pending restore then warm apply succeeds");
+
+        let io = fake.borrow();
+        assert_eq!(io.write_log[5], ("Mode".into(), "Automatic".into()));
+        assert_eq!(io.write_log[6], ("Active".into(), "true".into()));
+        assert_eq!(io.write_log[7], ("NightTemperature".into(), "4200".into()));
+        assert_eq!(io.settings.mode, KDE_MODE_CONSTANT);
+        assert!(io.settings.active);
+        drop(io);
+        assert_eq!(light.saved.as_ref().map(|settings| settings.mode.as_str()), Some("Automatic"));
+        assert!(!light.restore_pending);
+    }
+
+    #[test]
+    fn initial_read_error_performs_no_writes() {
+        let fake =
+            fake_io(KdeSettings { active: false, mode: "Automatic".into(), temperature: 5200 });
+        fake.borrow_mut().fail_reads = vec![1];
+        let mut light = KdeNightLight::default();
+
+        assert!(apply_fake(&mut light, &fake, 3000.0).is_err());
+        assert_eq!(fake.borrow().writes, 0);
+        assert!(light.saved.is_none());
+    }
+
+    #[test]
+    fn unset_mode_is_preserved_when_restoring() {
+        let fake = fake_io(kde(true, ""));
+        let mut light = KdeNightLight::default();
+
+        apply_fake(&mut light, &fake, 4000.0).expect("override applies");
+        disable_fake(&mut light, &fake).expect("restore succeeds");
+
+        assert!(fake.borrow().settings.mode.is_empty());
+        assert!(fake.borrow().settings.active);
+    }
+
+    #[test]
+    fn warm_request_remembers_a_new_external_schedule() {
+        let fake = fake_io(kde(true, "Automatic"));
+        let mut light = KdeNightLight::default();
+        apply_fake(&mut light, &fake, 4000.0).expect("first override applies");
+        fake.borrow_mut().settings = kde(true, "DarkLight");
+
+        apply_fake(&mut light, &fake, 4200.0).expect("second override applies");
+        disable_fake(&mut light, &fake).expect("restore succeeds");
+
+        assert_eq!(fake.borrow().settings.mode, "DarkLight");
+        assert!(fake.borrow().settings.active);
     }
 
     // ── command handling ─────────────────────────────────────────

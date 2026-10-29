@@ -17,7 +17,7 @@ use std::time::Duration;
 use crate::config::Config;
 use crate::dbus::power::{BatteryManager, PowerProfileManager};
 use crate::domain::power::{
-    BatterySnapshot, PowerProfileSnapshot, battery_status_label, profile_status_label,
+    BatterySnapshot, BatteryState, PowerProfileSnapshot, battery_status_label, profile_status_label,
 };
 use crate::ui::{
     power::{CHARGE_LIMIT_PRESETS, ChargeLimitController, ChargeLimitStatus, PowerWidgets},
@@ -149,7 +149,7 @@ fn render_battery(
     service_connected: bool,
 ) {
     if !snapshot.present {
-        view.battery_icon.set_icon_name(Some("battery-missing-symbolic"));
+        view.battery_icon.set_icon_name(Some("wifi-manager-battery-missing-symbolic"));
         view.battery_summary.set_text("No battery detected");
         view.battery_details.set_text("A desktop power supply may not expose a battery.");
         view.status.set_text(if service_connected {
@@ -161,13 +161,27 @@ fn render_battery(
         return;
     }
 
-    let icon =
-        snapshot.icon_name.as_deref().filter(|icon| !icon.is_empty()).unwrap_or("battery-symbolic");
-    view.battery_icon.set_icon_name(Some(icon));
+    view.battery_icon.set_icon_name(Some(battery_icon(&snapshot)));
     view.battery_summary.set_text(&battery_status_label(&snapshot));
     view.battery_details.set_text(&battery_details(&snapshot));
     view.status.set_text("Battery status updated");
     home.set_power_battery_status(Some(&battery_status_label(&snapshot)));
+}
+
+fn battery_icon(snapshot: &BatterySnapshot) -> &'static str {
+    if snapshot.state == BatteryState::Charging {
+        "wifi-manager-battery-charging-symbolic"
+    } else if snapshot.state == BatteryState::FullyCharged {
+        "wifi-manager-battery-full-symbolic"
+    } else {
+        match snapshot.percentage {
+            Some(95..=100) => "wifi-manager-battery-full-symbolic",
+            Some(60..=94) => "wifi-manager-battery-high-symbolic",
+            Some(30..=59) => "wifi-manager-battery-medium-symbolic",
+            Some(10..=29) => "wifi-manager-battery-low-symbolic",
+            _ => "wifi-manager-battery-empty-symbolic",
+        }
+    }
 }
 
 fn battery_details(snapshot: &BatterySnapshot) -> String {

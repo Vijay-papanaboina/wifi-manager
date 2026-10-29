@@ -58,9 +58,9 @@ impl MediaWidgets {
 
         let actions = GtkBox::new(Orientation::Horizontal, 4);
         actions.add_css_class("cc-media-actions");
-        let previous = media_button("media-skip-backward-symbolic", "Previous track");
-        let play_pause = media_button("media-playback-start-symbolic", "Play or pause");
-        let next = media_button("media-skip-forward-symbolic", "Next track");
+        let previous = media_button("wifi-manager-previous-symbolic", "Previous track");
+        let play_pause = media_button("wifi-manager-play-symbolic", "Play or pause");
+        let next = media_button("wifi-manager-next-symbolic", "Next track");
         actions.append(&previous);
         actions.append(&play_pause);
         actions.append(&next);
@@ -99,9 +99,9 @@ impl MediaWidgets {
         let artist = player.artist.as_deref().unwrap_or("Unknown artist");
         self.subtitle.set_text(&format!("{artist} · {}", player.identity));
         self.play_pause.set_icon_name(match player.status {
-            PlaybackStatus::Playing => "media-playback-pause-symbolic",
-            PlaybackStatus::Paused => "media-playback-start-symbolic",
-            _ => "media-playback-start-symbolic",
+            PlaybackStatus::Playing => "wifi-manager-pause-symbolic",
+            PlaybackStatus::Paused => "wifi-manager-play-symbolic",
+            _ => "wifi-manager-play-symbolic",
         });
         self.previous.set_sensitive(player.capabilities.previous_enabled());
         self.next.set_sensitive(player.capabilities.next_enabled());

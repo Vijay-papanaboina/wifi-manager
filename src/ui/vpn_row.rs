@@ -86,7 +86,7 @@ pub(crate) fn build_vpn_row(
     popover.add_css_class("vpn-popover");
 
     let menu_btn = MenuButton::new();
-    menu_btn.set_icon_name("view-more-symbolic");
+    menu_btn.set_icon_name("wifi-manager-more-symbolic");
     menu_btn.add_css_class("vpn-menu-btn");
     menu_btn.add_css_class("flat");
     menu_btn.set_has_frame(false);

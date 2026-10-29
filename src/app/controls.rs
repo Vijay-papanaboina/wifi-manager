@@ -12,6 +12,14 @@ use crate::ui::{controls_panel, window::PanelWidgets};
 const NEUTRAL_TEMP_KELVIN: f64 = 6500.0;
 const MIN_TEMP_KELVIN: f64 = 3000.0;
 
+fn warm_temperature(temperature: f64) -> f64 {
+    if temperature.is_finite() {
+        temperature.clamp(MIN_TEMP_KELVIN, NEUTRAL_TEMP_KELVIN - 1.0)
+    } else {
+        4500.0
+    }
+}
+
 fn smoothstep(t: f64) -> f64 {
     let t = t.clamp(0.0, 1.0);
     t * t * (3.0 - 2.0 * t)
@@ -158,102 +166,132 @@ pub(crate) fn setup_controls(widgets: &PanelWidgets) {
         format!("{}K", kelvin.round() as i32)
     });
 
-    match NightModeManager::new() {
-        Ok(manager) => {
-            let manager = Rc::new(manager);
+    night_mode_btn.set_sensitive(false);
+    glib::spawn_future_local(async move {
+        let result = gtk4::gio::spawn_blocking(|| {
+            NightModeManager::new().map_err(|error| error.to_string())
+        })
+        .await
+        .unwrap_or_else(|_| Err("Night Mode initialization task failed".to_owned()));
+        match result {
+            Ok(manager) => {
+                let manager = Rc::new(manager);
+                night_mode_btn.set_sensitive(true);
 
-            // Initial state. When the desktop owns Night Light (KDE backend) its
-            // settings win over state.toml, so the panel never contradicts them.
-            // Otherwise (wlr backend) the app's saved state is used.
-            let external = manager.external_state();
-            let (night_enabled, night_temp) = match external {
-                Some(state) => {
-                    let mut store = store_nm.borrow_mut();
-                    store.night_mode.enabled = state.enabled;
-                    store.night_mode.temperature = state.temperature;
-                    store.save();
-                    (state.enabled, state.temperature)
-                }
-                None => {
-                    let store = store_nm.borrow();
-                    (store.night_mode.enabled, store.night_mode.temperature)
-                }
-            };
+                // Seed the selectable preference from KDE without applying it.
+                // The wlr backend continues to use the app's saved state.
+                let external = manager.external_state();
+                let (night_enabled, night_temp) = match external {
+                    Some(state) => {
+                        let temperature = warm_temperature(state.temperature);
+                        let mut store = store_nm.borrow_mut();
+                        store.night_mode.enabled = state.enabled;
+                        store.night_mode.temperature = temperature;
+                        store.save();
+                        (state.enabled, temperature)
+                    }
+                    None => {
+                        let store = store_nm.borrow();
+                        (store.night_mode.enabled, store.night_mode.temperature)
+                    }
+                };
 
-            let max = n_scale.adjustment().upper();
-            n_scale.set_value(kelvin_to_slider(night_temp, max));
-            let icon_config = Config::load();
+                let max = n_scale.adjustment().upper();
+                n_scale.set_value(kelvin_to_slider(night_temp, max));
+                let icon_config = Config::load();
 
-            if night_enabled {
-                n_scale.set_sensitive(true);
-                controls_panel::set_button_glyph(&night_mode_btn, &icon_config.night_mode_on_icon);
-                // State read from the desktop is already applied there.
-                if external.is_none()
-                    && let Err(e) = manager.set_temperature(night_temp)
-                {
-                    log::warn!("Failed to apply initial night mode temperature: {}", e);
-                }
-            } else {
-                controls_panel::set_button_glyph(&night_mode_btn, &icon_config.night_mode_off_icon);
-            }
-
-            // ── Moon button: toggle Night Mode on/off ────────────────
-            let mgr_btn = Rc::clone(&manager);
-            let n_scale_btn = n_scale.clone();
-            let store_btn = Rc::clone(&state_store);
-
-            night_mode_btn.connect_clicked(move |btn| {
-                let currently_enabled = n_scale_btn.is_sensitive();
-                let new_enabled = !currently_enabled;
-
-                if new_enabled {
-                    let temp = store_btn.borrow().night_mode.temperature;
-                    n_scale_btn.set_sensitive(true);
-                    let config = Config::load();
-                    controls_panel::set_button_glyph(btn, &config.night_mode_on_icon);
-                    if let Err(e) = mgr_btn.set_temperature(temp) {
-                        log::warn!("Failed to enable night mode: {}", e);
+                if night_enabled {
+                    n_scale.set_sensitive(true);
+                    controls_panel::set_button_glyph(
+                        &night_mode_btn,
+                        &icon_config.night_mode_on_icon,
+                    );
+                    // State read from the desktop is already applied there.
+                    if external.is_none()
+                        && let Err(e) = manager.set_temperature(night_temp)
+                    {
+                        log::warn!("Failed to apply initial night mode temperature: {}", e);
                     }
                 } else {
-                    n_scale_btn.set_sensitive(false);
-                    let config = Config::load();
-                    controls_panel::set_button_glyph(btn, &config.night_mode_off_icon);
-                    if let Err(e) = mgr_btn.set_temperature(NEUTRAL_TEMP_KELVIN) {
-                        log::warn!("Failed to disable night mode: {}", e);
+                    controls_panel::set_button_glyph(
+                        &night_mode_btn,
+                        &icon_config.night_mode_off_icon,
+                    );
+                }
+
+                // ── Moon button: toggle Night Mode on/off ────────────────
+                let mgr_btn = Rc::clone(&manager);
+                let n_scale_btn = n_scale.clone();
+                let store_btn = Rc::clone(&state_store);
+
+                night_mode_btn.connect_clicked(move |btn| {
+                    let currently_enabled = n_scale_btn.is_sensitive();
+                    let new_enabled = !currently_enabled;
+
+                    if new_enabled {
+                        let temp = warm_temperature(store_btn.borrow().night_mode.temperature);
+                        store_btn.borrow_mut().night_mode.temperature = temp;
+                        let max = n_scale_btn.adjustment().upper();
+                        n_scale_btn.set_value(kelvin_to_slider(temp, max));
+                        n_scale_btn.set_sensitive(true);
+                        let config = Config::load();
+                        controls_panel::set_button_glyph(btn, &config.night_mode_on_icon);
+                        if let Err(e) = mgr_btn.set_temperature(temp) {
+                            log::warn!("Failed to enable night mode: {}", e);
+                        }
+                    } else {
+                        n_scale_btn.set_sensitive(false);
+                        let config = Config::load();
+                        controls_panel::set_button_glyph(btn, &config.night_mode_off_icon);
+                        if let Err(e) = mgr_btn.set_temperature(NEUTRAL_TEMP_KELVIN) {
+                            log::warn!("Failed to disable night mode: {}", e);
+                        }
                     }
-                }
 
-                let mut store = store_btn.borrow_mut();
-                store.night_mode.enabled = new_enabled;
-                store.save();
-            });
+                    let mut store = store_btn.borrow_mut();
+                    store.night_mode.enabled = new_enabled;
+                    store.save();
+                });
 
-            // ── Slider drag: update temperature and persist ───────────
-            let mgr_slider = Rc::clone(&manager);
-            let store_slider = Rc::clone(&state_store);
+                // ── Slider drag: update temperature and persist ───────────
+                let mgr_slider = Rc::clone(&manager);
+                let store_slider = Rc::clone(&state_store);
 
-            n_scale.connect_value_changed(move |scale: &gtk4::Scale| {
-                if !scale.is_sensitive() {
-                    return;
-                }
-                let val = scale.value();
-                let max = scale.adjustment().upper();
-                let kelvin = slider_to_kelvin(val, max);
-                if let Err(e) = mgr_slider.set_temperature(kelvin) {
-                    log::warn!("Failed to set night mode temperature: {}", e);
-                }
-                let mut store = store_slider.borrow_mut();
-                store.night_mode.temperature = kelvin;
-                store.save();
-            });
+                n_scale.connect_value_changed(move |scale: &gtk4::Scale| {
+                    if !scale.is_sensitive() {
+                        return;
+                    }
+                    let val = scale.value();
+                    let max = scale.adjustment().upper();
+                    let kelvin = slider_to_kelvin(val, max);
+                    if let Err(e) = mgr_slider.set_temperature(kelvin) {
+                        log::warn!("Failed to set night mode temperature: {}", e);
+                    }
+                    let mut store = store_slider.borrow_mut();
+                    store.night_mode.temperature = kelvin;
+                    store.save();
+                });
+            }
+            Err(e) => log::error!("Failed to init NightModeManager: {}", e),
         }
-        Err(e) => log::error!("Failed to init NightModeManager: {}", e),
-    }
+    });
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn imported_temperature_stays_within_the_selectable_warm_range() {
+        for (input, expected) in [(1000.0, 3000.0), (4500.0, 4500.0), (6500.0, 6499.0)] {
+            let temperature = warm_temperature(input);
+            assert_eq!(temperature, expected);
+            assert!(temperature.round() < NEUTRAL_TEMP_KELVIN);
+            let displayed = slider_to_kelvin(kelvin_to_slider(temperature, 3500.0), 3500.0);
+            assert!((displayed - temperature).abs() < 0.01);
+        }
+        assert_eq!(warm_temperature(f64::NAN), 4500.0);
+    }
 
     #[test]
     fn temperature_mapping_has_expected_endpoints() {

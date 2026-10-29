@@ -35,7 +35,7 @@ pub(crate) fn build_password_section() -> (Revealer, Entry, Button, Button, Labe
     entry.set_input_purpose(InputPurpose::Password);
 
     // Show/hide toggle via secondary icon
-    entry.set_secondary_icon_name(Some("view-reveal-symbolic"));
+    entry.set_secondary_icon_name(Some("wifi-manager-eye-symbolic"));
     entry.set_secondary_icon_tooltip_text(Some("Show password"));
     entry.set_secondary_icon_activatable(true);
 
@@ -43,13 +43,13 @@ pub(crate) fn build_password_section() -> (Revealer, Entry, Button, Button, Labe
     entry.connect_icon_release(|entry, _pos| {
         // Check current state by looking at the icon name
         let is_hidden =
-            entry.secondary_icon_name().is_none_or(|name| name == "view-reveal-symbolic");
+            entry.secondary_icon_name().is_none_or(|name| name == "wifi-manager-eye-symbolic");
         entry.set_visibility(is_hidden);
         if is_hidden {
-            entry.set_secondary_icon_name(Some("view-conceal-symbolic"));
+            entry.set_secondary_icon_name(Some("wifi-manager-eye-off-symbolic"));
             entry.set_secondary_icon_tooltip_text(Some("Hide password"));
         } else {
-            entry.set_secondary_icon_name(Some("view-reveal-symbolic"));
+            entry.set_secondary_icon_name(Some("wifi-manager-eye-symbolic"));
             entry.set_secondary_icon_tooltip_text(Some("Show password"));
         }
     });

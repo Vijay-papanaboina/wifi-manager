@@ -109,27 +109,27 @@ impl Default for Config {
             margin_bottom: 10,
             margin_left: 10,
             signal_icons: [
-                "󰤟".to_string(), // weak
-                "󰤢".to_string(), // fair
-                "󰤥".to_string(), // good
-                "󰤨".to_string(), // strong
+                "wifi-manager-wifi-weak-symbolic".to_string(),
+                "wifi-manager-wifi-fair-symbolic".to_string(),
+                "wifi-manager-wifi-good-symbolic".to_string(),
+                "wifi-manager-wifi-strong-symbolic".to_string(),
             ],
-            lock_icon: "󰌾".to_string(),
-            saved_icon: "".to_string(),
-            wifi_icon: "network-wireless-symbolic".to_string(),
-            bluetooth_icon: "bluetooth-active-symbolic".to_string(),
-            audio_icon: "audio-volume-high-symbolic".to_string(),
-            power_battery_icon: "battery-symbolic".to_string(),
-            media_icon: "audio-x-generic-symbolic".to_string(),
-            system_icon: "utilities-system-monitor-symbolic".to_string(),
-            brightness_icon: "display-brightness-symbolic".to_string(),
-            volume_icon: "audio-volume-high-symbolic".to_string(),
-            night_mode_on_icon: "".to_string(),
-            night_mode_off_icon: "".to_string(),
-            logout_icon: "".to_string(),
-            reboot_icon: "".to_string(),
-            suspend_icon: "󰒲".to_string(),
-            poweroff_icon: "".to_string(),
+            lock_icon: "wifi-manager-lock-symbolic".to_string(),
+            saved_icon: "wifi-manager-check-circle-symbolic".to_string(),
+            wifi_icon: "wifi-manager-wifi-strong-symbolic".to_string(),
+            bluetooth_icon: "wifi-manager-bluetooth-symbolic".to_string(),
+            audio_icon: "wifi-manager-volume-high-symbolic".to_string(),
+            power_battery_icon: "wifi-manager-battery-full-symbolic".to_string(),
+            media_icon: "wifi-manager-music-symbolic".to_string(),
+            system_icon: "wifi-manager-cpu-symbolic".to_string(),
+            brightness_icon: "wifi-manager-sun-symbolic".to_string(),
+            volume_icon: "wifi-manager-volume-high-symbolic".to_string(),
+            night_mode_on_icon: "wifi-manager-moon-symbolic".to_string(),
+            night_mode_off_icon: "wifi-manager-moon-symbolic".to_string(),
+            logout_icon: "wifi-manager-logout-symbolic".to_string(),
+            reboot_icon: "wifi-manager-reboot-symbolic".to_string(),
+            suspend_icon: "wifi-manager-sleep-symbolic".to_string(),
+            poweroff_icon: "wifi-manager-power-symbolic".to_string(),
             show_on_start: false,
             charge_limit: None,
         }
@@ -285,14 +285,31 @@ mod tests {
         assert_eq!(config.position, Position::Center);
         assert_eq!(config.margin_top, 10);
         assert_eq!(config.signal_icons.len(), 4);
-        assert_eq!(config.wifi_icon, "network-wireless-symbolic");
-        assert_eq!(config.bluetooth_icon, "bluetooth-active-symbolic");
-        assert_eq!(config.audio_icon, "audio-volume-high-symbolic");
-        assert_eq!(config.power_battery_icon, "battery-symbolic");
-        assert_eq!(config.media_icon, "audio-x-generic-symbolic");
-        assert_eq!(config.system_icon, "utilities-system-monitor-symbolic");
-        assert_eq!(config.brightness_icon, "display-brightness-symbolic");
-        assert_eq!(config.volume_icon, "audio-volume-high-symbolic");
+        assert_eq!(
+            config.signal_icons,
+            [
+                "wifi-manager-wifi-weak-symbolic",
+                "wifi-manager-wifi-fair-symbolic",
+                "wifi-manager-wifi-good-symbolic",
+                "wifi-manager-wifi-strong-symbolic",
+            ]
+        );
+        assert_eq!(config.lock_icon, "wifi-manager-lock-symbolic");
+        assert_eq!(config.saved_icon, "wifi-manager-check-circle-symbolic");
+        assert_eq!(config.wifi_icon, "wifi-manager-wifi-strong-symbolic");
+        assert_eq!(config.bluetooth_icon, "wifi-manager-bluetooth-symbolic");
+        assert_eq!(config.audio_icon, "wifi-manager-volume-high-symbolic");
+        assert_eq!(config.power_battery_icon, "wifi-manager-battery-full-symbolic");
+        assert_eq!(config.media_icon, "wifi-manager-music-symbolic");
+        assert_eq!(config.system_icon, "wifi-manager-cpu-symbolic");
+        assert_eq!(config.brightness_icon, "wifi-manager-sun-symbolic");
+        assert_eq!(config.volume_icon, "wifi-manager-volume-high-symbolic");
+        assert_eq!(config.night_mode_on_icon, "wifi-manager-moon-symbolic");
+        assert_eq!(config.night_mode_off_icon, "wifi-manager-moon-symbolic");
+        assert_eq!(config.logout_icon, "wifi-manager-logout-symbolic");
+        assert_eq!(config.reboot_icon, "wifi-manager-reboot-symbolic");
+        assert_eq!(config.suspend_icon, "wifi-manager-sleep-symbolic");
+        assert_eq!(config.poweroff_icon, "wifi-manager-power-symbolic");
         assert!(!config.show_on_start);
         assert_eq!(config.charge_limit, None);
     }

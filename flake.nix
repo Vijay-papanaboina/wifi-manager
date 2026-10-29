@@ -43,6 +43,7 @@
 
         nativeBuildInputs = with pkgs; [
           pkg-config
+          glib # compiles the embedded SVG icon resources
           wrapGAppsHook4
         ];
 
@@ -51,6 +52,7 @@
             src = ./.;
             filter = path: type:
               (pkgs.lib.hasInfix "/resources/" path) ||
+              (pkgs.lib.hasInfix "/svgs/" path) ||
               (craneLib.filterCargoSources path type);
           };
           strictDeps = true;
@@ -62,6 +64,7 @@
 
         wifi-manager = craneLib.buildPackage (commonArgs // {
           inherit cargoArtifacts;
+          nativeCheckInputs = [ pkgs.dbus ];
         });
 
         cargoClippy = craneLib.cargoClippy (commonArgs // {

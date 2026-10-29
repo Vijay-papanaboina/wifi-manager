@@ -37,7 +37,7 @@ pub(crate) fn build_device_row(
 
     // Device category icon
     let icon_text = device.category.default_icon();
-    let icon_label = Label::new(Some(icon_text));
+    let icon_label = super::icons::widget(icon_text, 24);
     icon_label.add_css_class("device-icon");
     icon_label.set_valign(gtk4::Align::Center);
 
@@ -59,7 +59,7 @@ pub(crate) fn build_device_row(
     name_row.append(&name_label);
 
     if device.is_in_range() && !device.connected {
-        let nearby = Label::new(Some("•"));
+        let nearby = super::icons::widget("wifi-manager-nearby-symbolic", 12);
         nearby.add_css_class("device-nearby");
         nearby.set_valign(gtk4::Align::Center);
         nearby.set_tooltip_text(Some("Nearby"));
@@ -84,7 +84,7 @@ pub(crate) fn build_device_row(
 
     // Trusted icon (if trusted but not connected)
     if device.trusted && !device.connected {
-        let trusted_label = Label::new(Some("󰄬"));
+        let trusted_label = super::icons::widget("wifi-manager-check-symbolic", 16);
         trusted_label.add_css_class("trusted-icon");
         trusted_label.set_valign(gtk4::Align::Center);
         trusted_label.set_tooltip_text(Some("Trusted"));
@@ -102,7 +102,7 @@ pub(crate) fn build_device_row(
         popover.add_css_class("device-popover");
 
         let menu_btn = MenuButton::new();
-        menu_btn.set_icon_name("view-more-symbolic");
+        menu_btn.set_icon_name("wifi-manager-more-symbolic");
         menu_btn.add_css_class("device-menu-btn");
         menu_btn.add_css_class("flat");
         menu_btn.set_has_frame(false);

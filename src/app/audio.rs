@@ -10,10 +10,11 @@ use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use crate::controls::audio::AudioManager;
-use crate::domain::audio::{AudioDevice, AudioSnapshot, device_status_label};
+use crate::domain::audio::{AudioDevice, AudioDeviceKind, AudioSnapshot, device_status_label};
 use crate::ui::{audio::AudioWidgets, window::PanelWidgets};
 
-const MUTED_VOLUME_ICON: &str = "audio-volume-muted-symbolic";
+const MUTED_VOLUME_ICON: &str = "wifi-manager-volume-muted-symbolic";
+const MUTED_MICROPHONE_ICON: &str = "wifi-manager-microphone-muted-symbolic";
 
 #[derive(Default)]
 struct AudioUiState {
@@ -47,7 +48,6 @@ impl AudioUpdateGuards {
 struct DisplayVolumeControls {
     scale: gtk4::Scale,
     button: gtk4::Button,
-    icon: gtk4::Image,
 }
 
 impl DisplayVolumeControls {
@@ -55,7 +55,6 @@ impl DisplayVolumeControls {
         Self {
             scale: widgets.controls.volume_scale().clone(),
             button: widgets.controls.volume_btn().clone(),
-            icon: widgets.controls.volume_icon().clone(),
         }
     }
 }
@@ -383,6 +382,7 @@ fn render_snapshot(
         &view.output_mute,
         &view.output_scale,
         output,
+        AudioDeviceKind::Output,
         &updates.output_scale,
     );
     set_current_device(
@@ -390,6 +390,7 @@ fn render_snapshot(
         &view.input_mute,
         &view.input_scale,
         input,
+        AudioDeviceKind::Input,
         &updates.input_scale,
     );
     render_display_controls(display, output, &updates.display_scale);
@@ -416,7 +417,7 @@ fn render_unavailable(
     view.output_current.set_text("No output available");
     view.input_current.set_text("No microphone available");
     view.output_mute.set_icon_name(MUTED_VOLUME_ICON);
-    view.input_mute.set_icon_name(MUTED_VOLUME_ICON);
+    view.input_mute.set_icon_name(MUTED_MICROPHONE_ICON);
     view.output_mute.set_sensitive(false);
     view.input_mute.set_sensitive(false);
     view.output_scale.set_sensitive(false);
@@ -439,9 +440,9 @@ fn render_display_controls(
     output: Option<&AudioDevice>,
     scale_update: &Cell<bool>,
 ) {
-    let (volume, icon, available) = match output {
-        Some(output) => (f64::from(output.volume_percent), volume_icon(output), true),
-        None => (0.0, MUTED_VOLUME_ICON, false),
+    let (volume, available) = match output {
+        Some(output) => (f64::from(output.volume_percent), true),
+        None => (0.0, false),
     };
 
     display.button.set_sensitive(available);
@@ -449,9 +450,6 @@ fn render_display_controls(
     scale_update.set(true);
     display.scale.set_value(volume);
     scale_update.set(false);
-    // The quick-control button keeps the user-configured primary icon. The
-    // hidden image remains state-driven for existing callback/API wiring.
-    display.icon.set_icon_name(Some(icon));
 }
 
 fn restore_list_selection(
@@ -484,11 +482,15 @@ fn set_current_device(
     mute: &gtk4::Button,
     scale: &gtk4::Scale,
     device: Option<&AudioDevice>,
+    kind: AudioDeviceKind,
     scale_update: &Cell<bool>,
 ) {
     let Some(device) = device else {
         name.set_text("No device selected");
-        mute.set_icon_name("audio-volume-muted-symbolic");
+        mute.set_icon_name(match kind {
+            AudioDeviceKind::Input => MUTED_MICROPHONE_ICON,
+            AudioDeviceKind::Output => MUTED_VOLUME_ICON,
+        });
         mute.set_sensitive(false);
         scale_update.set(true);
         scale.set_value(0.0);
@@ -507,14 +509,16 @@ fn set_current_device(
 }
 
 fn volume_icon(device: &AudioDevice) -> &'static str {
-    if device.muted {
-        "audio-volume-muted-symbolic"
+    if device.kind == AudioDeviceKind::Input {
+        if device.muted { MUTED_MICROPHONE_ICON } else { "wifi-manager-microphone-symbolic" }
+    } else if device.muted {
+        MUTED_VOLUME_ICON
     } else if device.volume_percent < 33 {
-        "audio-volume-low-symbolic"
+        "wifi-manager-volume-low-symbolic"
     } else if device.volume_percent < 66 {
-        "audio-volume-medium-symbolic"
+        "wifi-manager-volume-medium-symbolic"
     } else {
-        "audio-volume-high-symbolic"
+        "wifi-manager-volume-high-symbolic"
     }
 }
 

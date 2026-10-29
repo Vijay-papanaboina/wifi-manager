@@ -67,7 +67,7 @@ It focuses on quick scanning, connect/disconnect, live state updates, and themin
 - **Power profiles** — reads and changes profiles through current power-profiles-daemon endpoints, with legacy compatibility
 - **Charge limit** — applies conservative 50%, 60%, 70%, 80%, 90%, or 100% presets through the standard Linux
   `charge_control_end_threshold` interface; unsupported or unauthorized systems remain explicit in the UI
-- **Brightness and Night Mode** — Wayland/system-manager controls remain available from Home and their detail page
+- **Brightness and Night Mode**: quick controls on Home, with Night Mode support through wlr-gamma-control or KDE Plasma 6
 - **Session actions** — Shutdown, Reboot, Suspend, and Logout use the existing compositor/session integrations
 
 ### Control Center
@@ -121,6 +121,16 @@ The following must be installed and running on your system:
 - **gtk4-layer-shell** — Wayland layer-shell integration
 
 These are automatically installed as dependencies when using the AUR package.
+
+Night Mode requires a compositor exposing `wlr-gamma-control`, or KDE Plasma 6
+with `kwriteconfig6` and `kreadconfig6` from KConfig available in `PATH`.
+The KDE backend reads its settings at startup. The toggle requests constant
+warmth immediately, temporarily overriding KDE's schedule. Turning it off
+restores the earlier Active/Mode settings if the override is still in place.
+Temperature changes are saved in KDE's `kwinrc` and persist after the app exits.
+The earlier schedule is remembered only until the app exits; restarting during
+an override loses that restoration state. KDE changes are not mirrored live
+into the panel.
 
 ### Nix
 
@@ -279,32 +289,32 @@ margin_bottom = 10
 margin_left = 10
 
 # Custom signal strength icons [weak, fair, good, strong]
-# Default: Nerd Fonts WiFi icons
-signal_icons = ["󰤟", "󰤢", "󰤥", "󰤨"]
+# Bundled SVG names; custom font glyphs also remain supported.
+signal_icons = ["wifi-manager-wifi-weak-symbolic", "wifi-manager-wifi-fair-symbolic", "wifi-manager-wifi-good-symbolic", "wifi-manager-wifi-strong-symbolic"]
 
 # Primary Control Center tile icons (GTK icon-theme names).
-wifi_icon = "network-wireless-symbolic"
-bluetooth_icon = "bluetooth-active-symbolic"
-audio_icon = "audio-volume-high-symbolic"
-power_battery_icon = "battery-symbolic"
-media_icon = "audio-x-generic-symbolic"
-system_icon = "utilities-system-monitor-symbolic"
+wifi_icon = "wifi-manager-wifi-strong-symbolic"
+bluetooth_icon = "wifi-manager-bluetooth-symbolic"
+audio_icon = "wifi-manager-volume-high-symbolic"
+power_battery_icon = "wifi-manager-battery-full-symbolic"
+media_icon = "wifi-manager-music-symbolic"
+system_icon = "wifi-manager-cpu-symbolic"
 
 # Primary quick-control icons.
-brightness_icon = "display-brightness-symbolic"
-volume_icon = "audio-volume-high-symbolic"
-night_mode_off_icon = ""
-night_mode_on_icon = ""
+brightness_icon = "wifi-manager-sun-symbolic"
+volume_icon = "wifi-manager-volume-high-symbolic"
+night_mode_off_icon = "wifi-manager-moon-symbolic"
+night_mode_on_icon = "wifi-manager-moon-symbolic"
 
-# Network row icons (font glyphs or other text accepted by the row widgets).
-lock_icon = "󰌾"
-saved_icon = ""
+# Network row icons (bundled/theme names or font glyphs).
+lock_icon = "wifi-manager-lock-symbolic"
+saved_icon = "wifi-manager-check-circle-symbolic"
 
-# Session power actions (font glyphs).
-logout_icon = ""
-reboot_icon = ""
-suspend_icon = "󰒲"
-poweroff_icon = ""
+# Session power actions (bundled/theme names or font glyphs).
+logout_icon = "wifi-manager-logout-symbolic"
+reboot_icon = "wifi-manager-reboot-symbolic"
+suspend_icon = "wifi-manager-sleep-symbolic"
+poweroff_icon = "wifi-manager-power-symbolic"
 
 # Whether to show the panel immediately when the daemon starts (default: false)
 show_on_start = false
@@ -319,8 +329,12 @@ show_on_start = false
 
 > **Note:** Margins only apply to edges the window is anchored to. For example, with `top-left`, only `margin_top` and `margin_left` have an effect. With `center`, no margins apply.
 
-Every field is optional; omitted icon fields use the defaults shown above. Dynamic icons such as Wi-Fi strength,
-battery charge state, and device-specific audio status continue to come from their live services. `charge_limit` is
+Every field is optional; omitted icon fields use the defaults shown above. The SVG
+icons are embedded in the executable, so no icon-pack installation is needed.
+Existing theme icon names remain valid. Network rows and quick controls also
+accept font glyphs; remove an override to use the new default. Wi-Fi strength,
+battery state, and audio mute/level still select
+the matching icon from live service data. `charge_limit` is
 only a remembered, validated preset: live hardware state takes precedence, and an invalid or unsupported saved value
 is ignored. Use `wifi-manager --reload` to reload configuration and the user CSS while the daemon is running.
 
@@ -377,7 +391,7 @@ src/
 │   ├── mod.rs               # Entry point for backend controls
 │   ├── brightness.rs        # BrightnessManager (systemd-logind + sysfs)
 │   ├── audio.rs             # AudioManager (libpulse-binding)
-│   ├── night_mode.rs        # NightModeManager (Wayland wlr-gamma-control)
+│   ├── night_mode.rs        # NightModeManager (wlr-gamma-control or KDE Plasma 6)
 │   └── power.rs             # PowerManager (systemctl + Compositor exit)
 ├── dbus/
 │   ├── proxies.rs           # NetworkManager D-Bus proxy traits (zbus)
@@ -412,6 +426,9 @@ be tested without NetworkManager, BlueZ, or a running Wayland session.
 
 ### Development checks
 
+Building requires `glib-compile-resources` from GLib's development tools. Tests
+also require `dbus-daemon` in `PATH` for the isolated NetworkManager test bus.
+
 ```sh
 cargo fmt --all -- --check
 cargo check --all-targets --all-features
@@ -432,7 +449,7 @@ cargo doc --no-deps --all-features
 | Bluetooth backend   | BlueZ (D-Bus)                           |
 | Audio backend       | libpulse (PulseAudio or PipeWire-Pulse) |
 | Power & Brightness  | systemd (systemctl + logind)            |
-| Night Mode backend  | wlr-gamma-control (Wayland)             |
+| Night Mode backend  | wlr-gamma-control or KDE Plasma 6 KConfig tools |
 | Configuration       | serde + toml                            |
 | CLI                 | clap                                    |
 

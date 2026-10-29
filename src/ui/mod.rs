@@ -4,6 +4,7 @@ pub(crate) mod device_list;
 pub(crate) mod device_row;
 pub(crate) mod header;
 pub(crate) mod home;
+pub(crate) mod icons;
 pub(crate) mod media;
 pub(crate) mod network_list;
 pub(crate) mod network_row;

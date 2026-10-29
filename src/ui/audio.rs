@@ -69,7 +69,7 @@ impl AudioWidgets {
         output_section.set_vexpand(true);
         output_section.set_valign(Align::Fill);
         let (output_current_row, output_current) =
-            current_device_row("audio-volume-high-symbolic", "No output selected");
+            current_device_row("wifi-manager-volume-high-symbolic", "No output selected");
         output_section.append(&output_current_row);
         let (output_scroll, output_list, output_empty) = device_list("No output devices found");
         output_section.append(&output_scroll);
@@ -81,7 +81,7 @@ impl AudioWidgets {
         input_section.set_vexpand(true);
         input_section.set_valign(Align::Fill);
         let (input_current_row, input_current) =
-            current_device_row("audio-input-microphone-symbolic", "No microphone selected");
+            current_device_row("wifi-manager-microphone-symbolic", "No microphone selected");
         input_section.append(&input_current_row);
         let (input_scroll, input_list, input_empty) = device_list("No microphone devices found");
         input_section.append(&input_scroll);
@@ -105,10 +105,18 @@ impl AudioWidgets {
         let volume_section = GtkBox::new(Orientation::Vertical, 4);
         volume_section.add_css_class("cc-audio-volume-section");
         volume_section.append(&section_heading("Volume & mute"));
-        let (output_controls, output_mute, output_scale) =
-            volume_control_row("Output", "Mute output", "Output volume");
-        let (input_controls, input_mute, input_scale) =
-            volume_control_row("Input", "Mute microphone", "Microphone input volume");
+        let (output_controls, output_mute, output_scale) = volume_control_row(
+            "Output",
+            "Mute output",
+            "Output volume",
+            "wifi-manager-volume-high-symbolic",
+        );
+        let (input_controls, input_mute, input_scale) = volume_control_row(
+            "Input",
+            "Mute microphone",
+            "Microphone input volume",
+            "wifi-manager-microphone-symbolic",
+        );
         volume_section.append(&output_controls);
         volume_section.append(&input_controls);
         container.append(&volume_section);
@@ -166,6 +174,7 @@ fn volume_control_row(
     name: &str,
     mute_tooltip: &str,
     scale_tooltip: &str,
+    icon_name: &str,
 ) -> (GtkBox, Button, Scale) {
     let row = GtkBox::new(Orientation::Horizontal, 8);
     row.add_css_class("cc-volume-row");
@@ -175,7 +184,7 @@ fn volume_control_row(
     label.set_width_chars(6);
     label.add_css_class("cc-volume-label");
 
-    let mute = Button::from_icon_name("audio-volume-high-symbolic");
+    let mute = Button::from_icon_name(icon_name);
     mute.add_css_class("flat");
     mute.add_css_class("circular");
     mute.add_css_class("cc-audio-action");

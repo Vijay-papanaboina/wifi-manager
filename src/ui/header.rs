@@ -60,7 +60,7 @@ pub(crate) fn build_header() -> HeaderWidgets {
 
     info_box.append(&title_label);
 
-    let scan_button = Button::from_icon_name("view-refresh-symbolic");
+    let scan_button = Button::from_icon_name("wifi-manager-refresh-symbolic");
     scan_button.add_css_class("scan-button");
     scan_button.set_tooltip_text(Some("Scan"));
     scan_button.set_valign(gtk4::Align::Center);

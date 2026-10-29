@@ -14,8 +14,8 @@ use gtk4_layer_shell::{Edge, KeyboardMode, Layer, LayerShell};
 use std::cell::RefCell;
 
 use super::{
-    audio, controls_panel, device_list, header, home, media, network_list, password_dialog, power,
-    system, vpn_list,
+    audio, controls_panel, device_list, header, home, icons, media, network_list, password_dialog,
+    power, system, vpn_list,
 };
 use crate::config::{Config, Position};
 
@@ -169,6 +169,7 @@ impl PanelWidgets {
 
 /// Build the main floating panel window with all UI components.
 pub(crate) fn build_window(app: &Application) -> PanelWidgets {
+    icons::register();
     let config = Config::load();
 
     let window = ApplicationWindow::builder()
@@ -309,6 +310,20 @@ pub(crate) fn build_window(app: &Application) -> PanelWidgets {
     vpn_scrolled.set_visible(false);
     wifi_sub_stack.add_named(&vpn_view, Some("vpn"));
     wifi_sub_stack.set_visible_child_name("networks");
+
+    let stack_for_networks = wifi_sub_stack.clone();
+    wifi_networks_tab.connect_toggled(move |tab| {
+        if tab.is_active() {
+            stack_for_networks.set_visible_child_name("networks");
+        }
+    });
+    let stack_for_vpn = wifi_sub_stack.clone();
+    wifi_vpn_tab.connect_toggled(move |tab| {
+        if tab.is_active() {
+            stack_for_vpn.set_visible_child_name("vpn");
+        }
+    });
+
     wifi_page.append(&wifi_sub_stack);
     content_stack.add_named(&wifi_page, Some(PanelPage::Wifi.name()));
 
@@ -445,7 +460,7 @@ fn make_detail_header(title: &str, status: &Label) -> (GtkBox, Button) {
     row.set_margin_top(12);
     row.set_margin_bottom(4);
 
-    let back = Button::from_icon_name("go-previous-symbolic");
+    let back = Button::from_icon_name("wifi-manager-back-symbolic");
     back.add_css_class("cc-back-button");
     back.set_tooltip_text(Some("Back to Control Center"));
     set_pointer_cursor(&back);

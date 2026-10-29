@@ -247,7 +247,7 @@ impl PowerWidgets {
 
         let battery_row = GtkBox::new(Orientation::Horizontal, 10);
         battery_row.add_css_class("cc-battery-row");
-        let battery_icon = Image::from_icon_name("battery-missing-symbolic");
+        let battery_icon = Image::from_icon_name("wifi-manager-battery-missing-symbolic");
         battery_icon.set_pixel_size(28);
         battery_icon.set_valign(Align::Center);
         battery_icon.add_css_class("cc-battery-icon");

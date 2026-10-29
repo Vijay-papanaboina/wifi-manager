@@ -1,5 +1,5 @@
 use futures_util::future::LocalBoxFuture;
-use gtk4::{Box, Button, Image, Label, Orientation, Scale, Window, glib, prelude::*};
+use gtk4::{Box, Button, Orientation, Scale, Window, glib, prelude::*};
 
 use crate::config::Config;
 use crate::error::AppResult;
@@ -11,11 +11,7 @@ fn set_pointer_cursor<W: IsA<gtk4::Widget>>(widget: &W) {
 }
 
 fn make_glyph_button(icon: &str, tooltip: &str) -> Button {
-    let label = Label::builder()
-        .label(icon)
-        .halign(gtk4::Align::Center)
-        .valign(gtk4::Align::Center)
-        .build();
+    let label = super::icons::widget(icon, 22);
     label.add_css_class("glyph-button-label");
 
     let button = Button::builder().child(&label).tooltip_text(tooltip).build();
@@ -27,17 +23,9 @@ fn make_glyph_button(icon: &str, tooltip: &str) -> Button {
 }
 
 pub(crate) fn set_button_glyph(button: &Button, glyph: &str) {
-    if let Some(label) = button.child().and_downcast::<Label>() {
-        label.set_label(glyph);
-    } else {
-        let label = Label::builder()
-            .label(glyph)
-            .halign(gtk4::Align::Center)
-            .valign(gtk4::Align::Center)
-            .build();
-        label.add_css_class("glyph-button-label");
-        button.set_child(Some(&label));
-    }
+    let icon = super::icons::widget(glyph, 22);
+    icon.add_css_class("glyph-button-label");
+    button.set_child(Some(&icon));
 }
 
 fn show_confirm_dialog(
@@ -124,7 +112,6 @@ pub(crate) struct ControlsPanel {
     brightness_scale: Scale,
     brightness_btn: Button,
     volume_scale: Scale,
-    volume_icon: Image,
     volume_btn: Button,
     night_mode_scale: Scale,
     night_mode_btn: Button,
@@ -158,9 +145,6 @@ impl ControlsPanel {
     pub(crate) fn volume_scale(&self) -> &Scale {
         &self.volume_scale
     }
-    pub(crate) fn volume_icon(&self) -> &Image {
-        &self.volume_icon
-    }
     pub(crate) fn volume_btn(&self) -> &Button {
         &self.volume_btn
     }
@@ -172,8 +156,8 @@ impl ControlsPanel {
     }
     /// Apply configuration values that can change without rebuilding widgets.
     pub(crate) fn apply_config(&self, config: &Config) {
-        self.brightness_btn.set_icon_name(&config.brightness_icon);
-        self.volume_btn.set_icon_name(&config.volume_icon);
+        set_button_glyph(&self.brightness_btn, &config.brightness_icon);
+        set_button_glyph(&self.volume_btn, &config.volume_icon);
         let night_mode_icon = if self.night_mode_scale.is_sensitive() {
             &config.night_mode_on_icon
         } else {
@@ -237,20 +221,15 @@ impl ControlsPanel {
             .build();
 
         // The container holding all always-visible quick controls.
-        let sliders_box = Box::builder().orientation(Orientation::Vertical).spacing(12).build();
+        let sliders_box = Box::builder().orientation(Orientation::Vertical).spacing(10).build();
 
         // Brightness Row
         let brightness_row =
             Box::builder().orientation(Orientation::Horizontal).spacing(12).build();
 
         // Clickable brightness icon: click to toggle between 1% dim and last custom level
-        let brightness_btn = Button::builder()
-            .icon_name(&config.brightness_icon)
-            .tooltip_text("Click to toggle minimum brightness")
-            .build();
-        set_pointer_cursor(&brightness_btn);
-        brightness_btn.add_css_class("flat");
-        brightness_btn.add_css_class("circular");
+        let brightness_btn =
+            make_glyph_button(&config.brightness_icon, "Click to toggle minimum brightness");
 
         let brightness_scale = Scale::builder()
             .orientation(Orientation::Horizontal)
@@ -269,17 +248,7 @@ impl ControlsPanel {
         let volume_row = Box::builder().orientation(Orientation::Horizontal).spacing(12).build();
 
         // Clickable volume icon: click to toggle mute
-        let volume_btn = Button::builder()
-            .icon_name(&config.volume_icon)
-            .tooltip_text("Click to toggle mute")
-            .build();
-        set_pointer_cursor(&volume_btn);
-        volume_btn.add_css_class("flat");
-        volume_btn.add_css_class("circular");
-
-        // Hidden Image widget kept for dynamic icon updates from volume callbacks
-        let volume_icon =
-            Image::builder().icon_name(&config.volume_icon).pixel_size(16).visible(false).build();
+        let volume_btn = make_glyph_button(&config.volume_icon, "Click to toggle mute");
 
         let volume_scale = Scale::builder()
             .orientation(Orientation::Horizontal)
@@ -362,7 +331,6 @@ impl ControlsPanel {
             brightness_scale,
             brightness_btn,
             volume_scale,
-            volume_icon,
             volume_btn,
             night_mode_scale,
             night_mode_btn,

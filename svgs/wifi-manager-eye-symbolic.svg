@@ -1,0 +1,4 @@
+<svg gpa:version="1" xmlns:gpa="https://www.gtk.org/grappa" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
+  <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z" fill="none" stroke="#000" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="transparent-fill foreground-stroke" gpa:fill="none" gpa:stroke="foreground" gpa:stroke-width="1.8 1.8 1.8"/>
+  <circle cx="12" cy="12" r="3" fill="none" stroke="#000" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="transparent-fill foreground-stroke" gpa:fill="none" gpa:stroke="foreground" gpa:stroke-width="1.8 1.8 1.8"/>
+</svg>

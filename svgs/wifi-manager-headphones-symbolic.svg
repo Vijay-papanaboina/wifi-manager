@@ -1,0 +1,5 @@
+<svg gpa:version="1" xmlns:gpa="https://www.gtk.org/grappa" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
+  <path d="M4 14v-3a8 8 0 0 1 16 0v3" fill="none" stroke="#000" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="transparent-fill foreground-stroke" gpa:fill="none" gpa:stroke="foreground" gpa:stroke-width="1.8 1.8 1.8"/>
+  <path d="M5 12H6A2 2 0 0 1 8 14V18A2 2 0 0 1 6 20H5A2 2 0 0 1 3 18V14A2 2 0 0 1 5 12Z" fill="none" stroke="#000" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="transparent-fill foreground-stroke" gpa:fill="none" gpa:stroke="foreground" gpa:stroke-width="1.8 1.8 1.8"/>
+  <path d="M18 12H19A2 2 0 0 1 21 14V18A2 2 0 0 1 19 20H18A2 2 0 0 1 16 18V14A2 2 0 0 1 18 12Z" fill="none" stroke="#000" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="transparent-fill foreground-stroke" gpa:fill="none" gpa:stroke="foreground" gpa:stroke-width="1.8 1.8 1.8"/>
+</svg>
