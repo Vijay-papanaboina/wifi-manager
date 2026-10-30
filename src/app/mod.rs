@@ -16,6 +16,7 @@ mod connection;
 mod controls;
 mod live_updates;
 mod media;
+mod refresh_queue;
 mod scanning;
 mod shortcuts;
 mod state;

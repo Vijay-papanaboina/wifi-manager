@@ -12,6 +12,7 @@ use crate::ui::{
     window::PanelWidgets,
 };
 
+use super::refresh_queue::{RefreshKind, RefreshQueue, drain_signals};
 use super::{AppState, get_wifi, refresh_list};
 
 /// Refresh only the Home Wi-Fi tile from the current NetworkManager snapshot.
@@ -68,15 +69,54 @@ pub(super) fn setup_live_updates(
     let switch = widgets.wifi_switch.clone();
     let wifi_tab = widgets.wifi_tab.clone();
     let home = widgets.home.clone();
+    let refreshes = Rc::new(RefreshQueue::default());
 
-    // Subscribe to Device.StateChanged signal
-    {
+    // D-Bus signal consumers must keep polling even while a refresh is waiting
+    // for a reply on the same connection. Share one worker across all three
+    // signals, with at most one pending follow-up rather than one task/event.
+    glib::spawn_future_local({
+        let refreshes = Rc::clone(&refreshes);
         let state = Rc::clone(&state);
         let list_box = list_box.clone();
         let status = status.clone();
         let switch = switch.clone();
         let wifi_tab = wifi_tab.clone();
-        let home = home.clone();
+        async move {
+            refreshes
+                .run(std::time::Duration::from_millis(300), |kind| {
+                    let state = Rc::clone(&state);
+                    let list_box = list_box.clone();
+                    let status = status.clone();
+                    let switch = switch.clone();
+                    let wifi_tab = wifi_tab.clone();
+                    let home = home.clone();
+                    async move {
+                        let wifi = get_wifi(&state);
+                        if kind == RefreshKind::Device {
+                            refresh_home_wifi_snapshot(&wifi, &home).await;
+                            if wifi_tab.is_active() {
+                                match wifi.is_wifi_enabled().await {
+                                    Ok(enabled) if wifi_tab.is_active() => {
+                                        switch.set_active(enabled)
+                                    }
+                                    Err(e) => log::error!("Failed to check WiFi state: {e}"),
+                                    _ => {}
+                                }
+                            }
+                        }
+                        if wifi_tab.is_active() {
+                            refresh_list(&state, &list_box, &status).await;
+                        }
+                    }
+                })
+                .await;
+        }
+    });
+
+    // Subscribe to Device.StateChanged signal
+    {
+        let state = Rc::clone(&state);
+        let refreshes = Rc::clone(&refreshes);
 
         glib::spawn_future_local(async move {
             let wifi = get_wifi(&state);
@@ -101,7 +141,7 @@ pub(super) fn setup_live_updates(
             };
 
             // Listen for state changes
-            let mut stream = match device_proxy.receive_state_changed().await {
+            let stream = match device_proxy.receive_state_changed().await {
                 Ok(s) => s,
                 Err(e) => {
                     log::error!("Failed to subscribe to device StateChanged: {e}");
@@ -111,11 +151,10 @@ pub(super) fn setup_live_updates(
 
             log::info!("Live updates: subscribed to device StateChanged signal");
 
-            use futures_util::StreamExt;
-            while let Some(signal) = stream.next().await {
+            drain_signals(stream, |signal| {
                 let args = match signal.args() {
                     Ok(a) => a,
-                    Err(_) => continue,
+                    Err(_) => return,
                 };
                 log::info!(
                     "Device state changed: {} -> {} (reason: {})",
@@ -144,34 +183,18 @@ pub(super) fn setup_live_updates(
                     );
                 }
 
-                // Keep Home current even while another detail page owns the
-                // compatibility switch and status sink.
-                refresh_home_wifi_snapshot(&wifi, &home).await;
-
-                // Update WiFi switch state
-                if wifi_tab.is_active() {
-                    match wifi.is_wifi_enabled().await {
-                        Ok(enabled) if wifi_tab.is_active() => switch.set_active(enabled),
-                        Err(e) => log::error!("Failed to check WiFi state: {e}"),
-                        _ => {}
-                    }
-                }
-
-                // Brief debounce then refresh UI
-                glib::timeout_future(std::time::Duration::from_millis(500)).await;
-                if wifi_tab.is_active() {
-                    refresh_list(&state, &list_box, &status).await;
-                }
-            }
+                refreshes.request(RefreshKind::Device);
+            })
+            .await;
         });
     }
 
-    // Subscribe to Wireless AccessPointAdded/Removed signals
-    {
+    // Subscribe and start draining each stream immediately; do not leave an
+    // existing stream idle while awaiting another subscription on the same bus.
+    for added in [true, false] {
         let state = Rc::clone(&state);
-        let list_box = list_box.clone();
-        let status = status.clone();
         let wifi_tab = wifi_tab.clone();
+        let refreshes = Rc::clone(&refreshes);
 
         glib::spawn_future_local(async move {
             let wifi = get_wifi(&state);
@@ -194,68 +217,27 @@ pub(super) fn setup_live_updates(
                 }
             };
 
-            // Listen for AP changes
-            let ap_added = match wireless_proxy.receive_access_point_added().await {
-                Ok(s) => Some(s),
-                Err(e) => {
-                    log::error!("Failed to subscribe to AccessPointAdded: {e}");
-                    None
+            let request_refresh = || {
+                if wifi_tab.is_active() {
+                    refreshes.request(RefreshKind::Networks);
                 }
             };
-            let ap_removed = match wireless_proxy.receive_access_point_removed().await {
-                Ok(s) => Some(s),
-                Err(e) => {
-                    log::error!("Failed to subscribe to AccessPointRemoved: {e}");
-                    None
+            if added {
+                match wireless_proxy.receive_access_point_added().await {
+                    Ok(stream) => {
+                        log::info!("Live updates: subscribed to AccessPointAdded");
+                        drain_signals(stream, |_| request_refresh()).await;
+                    }
+                    Err(e) => log::error!("Failed to subscribe to AccessPointAdded: {e}"),
                 }
-            };
-
-            if ap_added.is_none() && ap_removed.is_none() {
-                log::error!(
-                    "Live updates: failed to subscribe to AccessPointAdded/Removed signals"
-                );
-                return;
-            }
-
-            log::info!("Live updates: subscribed to AccessPointAdded/Removed signals");
-
-            use futures_util::StreamExt;
-            if let Some(mut ap_added) = ap_added {
-                let state_added = Rc::clone(&state);
-                let list_box_added = list_box.clone();
-                let status_added = status.clone();
-                let wifi_tab_added = wifi_tab.clone();
-                glib::spawn_future_local(async move {
-                    while (ap_added.next().await).is_some() {
-                        if !wifi_tab_added.is_active() {
-                            continue;
-                        }
-                        log::debug!("AccessPoint added, refreshing list");
-                        glib::timeout_future(std::time::Duration::from_millis(300)).await;
-                        if wifi_tab_added.is_active() {
-                            refresh_list(&state_added, &list_box_added, &status_added).await;
-                        }
+            } else {
+                match wireless_proxy.receive_access_point_removed().await {
+                    Ok(stream) => {
+                        log::info!("Live updates: subscribed to AccessPointRemoved");
+                        drain_signals(stream, |_| request_refresh()).await;
                     }
-                });
-            }
-
-            if let Some(mut ap_removed) = ap_removed {
-                let state_removed = Rc::clone(&state);
-                let list_box_removed = list_box.clone();
-                let status_removed = status.clone();
-                let wifi_tab_removed = wifi_tab.clone();
-                glib::spawn_future_local(async move {
-                    while (ap_removed.next().await).is_some() {
-                        if !wifi_tab_removed.is_active() {
-                            continue;
-                        }
-                        log::debug!("AccessPoint removed, refreshing list");
-                        glib::timeout_future(std::time::Duration::from_millis(300)).await;
-                        if wifi_tab_removed.is_active() {
-                            refresh_list(&state_removed, &list_box_removed, &status_removed).await;
-                        }
-                    }
-                });
+                    Err(e) => log::error!("Failed to subscribe to AccessPointRemoved: {e}"),
+                }
             }
         });
     }
