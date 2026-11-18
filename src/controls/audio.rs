@@ -111,9 +111,13 @@ impl AudioManager {
         {
             let manager_weak = Rc::downgrade(&manager);
             manager.context.borrow_mut().set_state_callback(Some(Box::new(move || {
-                if let Some(manager) = manager_weak.upgrade() {
-                    manager.handle_context_state();
-                }
+                // PulseAudio can notify inside connect/disconnect while Context is borrowed.
+                let manager_weak = manager_weak.clone();
+                glib::idle_add_local_once(move || {
+                    if let Some(manager) = manager_weak.upgrade() {
+                        manager.handle_context_state();
+                    }
+                });
             })));
         }
 
@@ -658,5 +662,75 @@ impl Drop for AudioManager {
                 _ => context.disconnect(),
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::os::unix::net::UnixListener;
+    use std::process::Command;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn context_state_callbacks_do_not_reenter_a_borrowed_context() {
+        const CHILD_ENV: &str = "WIFI_MANAGER_AUDIO_CALLBACK_TEST_CHILD";
+        if std::env::var_os(CHILD_ENV).is_some() {
+            let main_context = glib::MainContext::default();
+            let _guard = main_context.acquire().expect("own the test main context");
+            let unavailable = Rc::new(Cell::new(0));
+            let unavailable_callback = Rc::clone(&unavailable);
+            let manager = AudioManager::new(
+                |_| panic!("the test server does not provide audio devices"),
+                |_| {},
+                move |_| unavailable_callback.set(unavailable_callback.get() + 1),
+            )
+            .expect("connect to the isolated socket");
+
+            // Both connect and disconnect notify while Context is mutably borrowed.
+            manager.context.borrow_mut().disconnect();
+            assert_eq!(unavailable.get(), 0, "state handling must be deferred");
+            while main_context.pending() {
+                main_context.iteration(false);
+            }
+            assert_eq!(unavailable.get(), 1, "terminal failure must be reported once");
+            assert!(manager.connection_finished.get());
+            return;
+        }
+
+        // A child process isolates PulseAudio's environment and cached client config.
+        // The listening socket never sends a handshake or accesses a real audio server.
+        let directory = std::env::temp_dir().join(format!(
+            "wifi-manager-audio-{}-{}",
+            std::process::id(),
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        std::fs::create_dir(&directory).unwrap();
+        let socket = directory.join("pulse");
+        let listener = UnixListener::bind(&socket).unwrap();
+        let config = directory.join("client.conf");
+        std::fs::write(&config, "autospawn = no\n").unwrap();
+        let output = Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "controls::audio::tests::context_state_callbacks_do_not_reenter_a_borrowed_context",
+                "--nocapture",
+            ])
+            .env(CHILD_ENV, "1")
+            .env("PULSE_SERVER", format!("unix:{}", socket.display()))
+            .env("PULSE_CLIENTCONFIG", config)
+            .output()
+            .unwrap();
+        drop(listener);
+        std::fs::remove_dir_all(directory).unwrap();
+
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            output.status.success(),
+            "audio callback regression failed:\n{}\n{stderr}",
+            String::from_utf8_lossy(&output.stdout)
+        );
+        // libpulse-binding catches callback panics internally, so also inspect stderr.
+        assert!(!stderr.contains("panicked at"), "native callback panicked:\n{stderr}");
     }
 }
